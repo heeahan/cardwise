@@ -1,10 +1,17 @@
 import { createBrowserClient } from "@supabase/ssr";
 
-export function isSupabaseConfigured() {
-  return Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+export interface SupabaseBrowserConfig {
+  supabaseUrl: string | null;
+  supabaseAnonKey: string | null;
 }
 
-export function createClient() {
-  if (!isSupabaseConfigured()) throw new Error("Supabase 未配置，当前应使用演示模式");
-  return createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
+export function isSupabaseConfigured(config?: SupabaseBrowserConfig) {
+  return Boolean(config?.supabaseUrl ?? process.env.NEXT_PUBLIC_SUPABASE_URL) && Boolean(config?.supabaseAnonKey ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+}
+
+export function createClient(config?: SupabaseBrowserConfig) {
+  const supabaseUrl = config?.supabaseUrl ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? null;
+  const supabaseAnonKey = config?.supabaseAnonKey ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? null;
+  if (!supabaseUrl || !supabaseAnonKey) throw new Error("SUPABASE_NOT_CONFIGURED");
+  return createBrowserClient(supabaseUrl, supabaseAnonKey);
 }

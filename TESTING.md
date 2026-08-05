@@ -40,7 +40,7 @@ npm audit
 
 ## RLS 手工验收
 
-在测试 Supabase 建立用户 A 和 B：
+在测试 Supabase 建立两个专用非管理员账号 A 和 B，并把凭据只存入本机 `.env.local`。运行 `npm run verify:production:rls -- --confirm-write-tests` 可重复验证下列边界并自动清理临时记录；未提供确认参数时不会写入：
 
 1. A 创建卡片、权益和消费。
 2. B 直接请求 A 的 UUID；SELECT 应返回空、UPDATE/DELETE 应影响 0 行。

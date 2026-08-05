@@ -6,6 +6,13 @@ import { demoBenefits, demoCards, demoUsages } from "../lib/data/demo";
 import type { Benefit, BenefitRule, BenefitUsage, CreditCard } from "../lib/benefit-engine/types";
 import { createClient, isSupabaseConfigured } from "../lib/supabase/client";
 
+export interface CardWiseRuntimeConfig {
+  supabaseUrl: string | null;
+  supabaseAnonKey: string | null;
+  appUrl: string;
+  demoEnabled: boolean;
+}
+
 interface CardWiseState {
   cards: CreditCard[];
   archivedCards: CreditCard[];
@@ -16,6 +23,8 @@ interface CardWiseState {
   dataError: string | null;
   profile: UserProfile | null;
   toast: string | null;
+  runtimeConfig: CardWiseRuntimeConfig;
+  configurationMissing: boolean;
   reload: () => Promise<void>;
   addCard: (card: Omit<CreditCard, "id">) => CreditCard;
   updateCard: (id: string, changes: Partial<CreditCard>) => void;
@@ -113,14 +122,16 @@ const benefitPayload = (benefit: Partial<Benefit>) => ({
   ...(benefit.verifiedByUser !== undefined && { verifiedByUser: benefit.verifiedByUser }), ...(benefit.confidence !== undefined && { confidence: benefit.confidence }),
 });
 
-export function CardWiseProvider({ children }: { children: ReactNode }) {
-  const demoMode = !isSupabaseConfigured();
+export function CardWiseProvider({ children, runtimeConfig }: { children: ReactNode; runtimeConfig: CardWiseRuntimeConfig }) {
+  const configured = isSupabaseConfigured(runtimeConfig);
+  const demoMode = !configured && runtimeConfig.demoEnabled;
+  const configurationMissing = !configured && !demoMode;
   const [cards, setCards] = useState<CreditCard[]>(demoMode ? demoCards : []);
   const [archivedCards, setArchivedCards] = useState<CreditCard[]>([]);
   const [benefits, setBenefits] = useState<Benefit[]>(demoMode ? demoBenefits : []);
   const [usages, setUsages] = useState<BenefitUsage[]>(demoMode ? demoUsages : []);
   const [profile, setProfile] = useState<UserProfile | null>(demoMode ? { displayName: "演示用户", email: "demo@cardwise.local", defaultLanguage: "zh-CN", defaultCurrency: "KRW", defaultTimezone: "Asia/Seoul", emailNotifications: false } : null);
-  const [loading, setLoading] = useState(!demoMode);
+  const [loading, setLoading] = useState(configured);
   const [dataError, setDataError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const pathname = usePathname();
@@ -132,7 +143,7 @@ export function CardWiseProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const reload = useCallback(async () => {
-    if (demoMode) return;
+    if (demoMode || configurationMissing) return;
     setLoading(true);
     setDataError(null);
     try {
@@ -149,11 +160,11 @@ export function CardWiseProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [demoMode]);
+  }, [configurationMissing, demoMode]);
 
   useEffect(() => {
-    if (demoMode) return;
-    const supabase = createClient();
+    if (demoMode || configurationMissing) return;
+    const supabase = createClient(runtimeConfig);
     void supabase.auth.getUser().then(({ data }) => {
       if (data.user) void reload();
       else {
@@ -169,7 +180,7 @@ export function CardWiseProvider({ children }: { children: ReactNode }) {
       }
     });
     return () => listener.subscription.unsubscribe();
-  }, [demoMode, pathname, reload, router]);
+  }, [configurationMissing, demoMode, pathname, reload, router, runtimeConfig]);
 
   const failWrite = useCallback((error: unknown) => {
     notify(error instanceof Error ? error.message : "保存失败，请稍后重试");
@@ -201,7 +212,7 @@ export function CardWiseProvider({ children }: { children: ReactNode }) {
   };
   const signOut = async () => {
     if (demoMode) { router.push("/login"); return; }
-    const { error } = await createClient().auth.signOut();
+    const { error } = await createClient(runtimeConfig).auth.signOut();
     if (error) throw error;
     router.replace("/login");
   };
@@ -245,7 +256,7 @@ export function CardWiseProvider({ children }: { children: ReactNode }) {
   };
 
   const value: CardWiseState = {
-    cards, archivedCards, benefits, usages, demoMode, loading, dataError, profile, toast, reload,
+    cards, archivedCards, benefits, usages, demoMode, loading, dataError, profile, toast, runtimeConfig, configurationMissing, reload,
     addCard, updateCard, deleteCard, restoreCard, signOut, updateProfile, addBenefit, updateBenefit, deleteBenefit, addUsage, updateUsage, deleteUsage,
     notify, clearToast: () => setToast(null),
   };

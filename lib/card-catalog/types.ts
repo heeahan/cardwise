@@ -26,7 +26,17 @@ export interface ProviderMetadata {
   displayName: string;
   coverage: string;
   containsCompleteBenefits: boolean;
+  contractVersion: string;
   message?: string;
+}
+
+export interface ProviderConnectionReport {
+  providerName: string;
+  configurationStatus: CatalogProviderStatus;
+  connected: boolean;
+  responseTimeMs: number;
+  contractVersion: string;
+  errorClassification: string | null;
 }
 
 export interface ExternalBenefit {

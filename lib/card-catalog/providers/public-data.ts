@@ -12,9 +12,9 @@ export class PublicDataProvider implements KoreanCardCatalogProvider {
   readonly providerId = "public-data" as const;
   constructor(private readonly client?: PublicDataDatasetClient, private readonly hasServiceKey = false, private readonly datasetName?: string) {}
   getMetadata(): ProviderMetadata {
-    if (!this.hasServiceKey) return { providerId: this.providerId, status: "not_configured", displayName: "韩国公共数据 API", coverage: "取决于选择的 data.go.kr 数据集", containsCompleteBenefits: false, message: "尚未配置 DATA_GO_KR_SERVICE_KEY" };
-    if (!this.datasetName || !this.client) return { providerId: this.providerId, status: "contract_required", displayName: "韩国公共数据 API", coverage: "尚未选择具有合法开放许可的数据集", containsCompleteBenefits: false, message: "需要先确认具体数据集、许可、端点和字段合同；系统不会假设其覆盖韩国全部信用卡" };
-    return { providerId: this.providerId, status: "partial", displayName: this.datasetName, coverage: "仅覆盖该公共数据集明确列出的机构和字段", containsCompleteBenefits: false, message: "公共数据可能不包含完整优惠条件" };
+    if (!this.hasServiceKey) return { providerId: this.providerId, status: "not_configured", displayName: "韩国公共数据 API", coverage: "取决于选择的 data.go.kr 数据集", containsCompleteBenefits: false, contractVersion: "dataset-not-selected", message: "尚未配置 DATA_GO_KR_SERVICE_KEY" };
+    if (!this.datasetName || !this.client) return { providerId: this.providerId, status: "contract_required", displayName: "韩国公共数据 API", coverage: "尚未选择具有合法开放许可的数据集", containsCompleteBenefits: false, contractVersion: "dataset-contract-not-installed", message: "需要先确认具体数据集、许可、端点和字段合同；系统不会假设其覆盖韩国全部信用卡" };
+    return { providerId: this.providerId, status: "partial", displayName: this.datasetName, coverage: "仅覆盖该公共数据集明确列出的机构和字段", containsCompleteBenefits: false, contractVersion: process.env.DATA_GO_KR_CONTRACT_VERSION ?? "contract-version-not-declared", message: "公共数据可能不包含完整优惠条件" };
   }
   private requireClient() {
     const meta = this.getMetadata();

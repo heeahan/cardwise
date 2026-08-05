@@ -9,7 +9,7 @@ const TEST_CARD: ExternalCardDetail = {
 
 export class MockCatalogProvider implements KoreanCardCatalogProvider {
   readonly providerId = "mock" as const;
-  getMetadata(): ProviderMetadata { return { providerId: this.providerId, status: "test_only", displayName: "Mock Provider — TEST ONLY", coverage: "仅自动测试", containsCompleteBenefits: false, message: "不是韩国真实信用卡数据" }; }
+  getMetadata(): ProviderMetadata { return { providerId: this.providerId, status: "test_only", displayName: "Mock Provider — TEST ONLY", coverage: "仅自动测试", containsCompleteBenefits: false, contractVersion: "test-fixture-v1", message: "不是韩国真实信用卡数据" }; }
   async searchCards(input: CardSearchInput): Promise<CardSearchResult> {
     const match = !input.query || `${TEST_CARD.nameKo}${TEST_CARD.nameEn}`.toLowerCase().includes(input.query.toLowerCase());
     return { items: match ? [TEST_CARD] : [], total: match ? 1 : 0, page: input.page, pageSize: input.pageSize, provider: this.getMetadata() };

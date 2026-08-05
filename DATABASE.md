@@ -31,12 +31,6 @@ erDiagram
 - 公共模板使用 `is_public_template=true, user_id=null`；用户自定义元数据必须有 `user_id`。
 - CSV 的 `external_fingerprint` 在用户范围内唯一，用于重复检测。
 
-基础 schema、索引、触发器、RLS 与 Storage 策略位于 `supabase/migrations/202608040001_cardwise.sql`；`202608050001_card_lifecycle.sql` 增量加入卡片币种和可恢复归档函数；`202608050002_korean_card_catalog.sql` 新增目录、版本、同步、来源文档、管理员和用户更新确认。已有环境必须按文件名顺序执行全部迁移。
+基础 schema、索引、触发器、RLS 与 Storage 策略位于 `supabase/migrations/202608040001_cardwise.sql`；`202608050001_card_lifecycle.sql` 加入卡片生命周期；`202608050002_korean_card_catalog.sql` 新增目录与审核；`202608050003_production_activation.sql` 新增原子管理员 bootstrap、readiness、同步互斥和去标识化删除审计。已有环境必须按文件名顺序执行全部迁移。
 
-首次启用管理员审核时，由项目所有者在 Supabase SQL Editor 使用已确认的 Auth 用户 UUID 执行：
-
-```sql
-insert into public.cardwise_admins(user_id) values ('真实管理员 Auth UUID');
-```
-
-普通客户端无权读取或修改 `cardwise_admins`。不要在 seed 或公开仓库中提交真实用户 UUID。
+首次启用管理员审核时，把已确认 Auth 用户 UUID 仅临时写入本机 `.env.local` 的 `CARDWISE_BOOTSTRAP_ADMIN_USER_ID`，执行 `npm run bootstrap:admin -- --confirm`，成功后立即删除该变量。脚本调用仅 service role 可执行的幂等事务 RPC。普通客户端无权读取或修改 `cardwise_admins`；不要在 seed、日志或公开仓库中提交真实用户 UUID。

@@ -42,7 +42,7 @@ const categoryIcons: Record<string, LucideIcon> = { 咖啡: Coffee, 餐饮: Uten
 interface CatalogIssuer { id: string; code?: string | null; name_ko?: string | null; name_en?: string | null; name_zh?: string | null; official_website?: string | null; logo_path?: string | null }
 interface CatalogBenefit { id: string; provider_benefit_id?: string; name: string; description: string; category: string; rule: BenefitRule; source_text: string; source_url?: string | null; effective_from?: string | null; effective_to?: string | null; source_updated_at?: string | null; verification_status: string; review_reasons?: string[]; version: number; is_current?: boolean }
 interface CatalogCard { id: string; issuer_id: string; provider_id: string; external_card_id: string; name_ko: string; name_en?: string | null; name_zh?: string | null; card_type: "credit" | "debit"; brand: CreditCard["network"]; annual_fee_domestic: number; annual_fee_overseas?: number | null; currency: string; image_url?: string | null; official_url: string; application_url?: string | null; product_status: string; source_url: string; source_name: string; source_updated_at?: string | null; last_synced_at?: string | null; verification_status: string; coverage_note?: string | null; card_issuers?: CatalogIssuer | CatalogIssuer[] | null; catalog_benefits?: CatalogBenefit[] }
-interface CatalogProviderMeta { providerId: string; status: string; displayName: string; coverage: string; containsCompleteBenefits: boolean; message?: string }
+interface CatalogProviderMeta { providerId: string; status: string; displayName: string; coverage: string; containsCompleteBenefits: boolean; contractVersion?: string; message?: string }
 interface CatalogUpdate { id: string; created_at: string; credit_cards?: { id: string; nickname: string; card_name: string } | null; catalog_change_events?: { change_type: string; material_fields: string[]; card_catalog?: { name_ko: string; source_name: string; source_url: string } | null; catalog_benefits?: { name: string; description: string; version: number } | null } | null }
 
 const catalogIssuer = (card: CatalogCard) => Array.isArray(card.card_issuers) ? card.card_issuers[0] : card.card_issuers;
@@ -57,7 +57,8 @@ const catalogRequest = async <T,>(url: string, init?: RequestInit): Promise<{ da
 export function CardWiseApp() {
   const pathname = usePathname();
   const hydrated = useSyncExternalStore(subscribeToHydration, () => true, () => false);
-  return <div data-hydrated={hydrated ? "true" : "false"}>{pathname === "/login" || pathname === "/register" ? <AuthScreen register={pathname === "/register"} /> : <AppShell pathname={pathname}><RouteContent pathname={pathname} /></AppShell>}</div>;
+  const authScreen = pathname === "/login" || pathname === "/register" ? <AuthScreen register={pathname === "/register"} /> : pathname === "/forgot-password" ? <ForgotPasswordScreen /> : pathname === "/reset-password" ? <ResetPasswordScreen /> : null;
+  return <div data-hydrated={hydrated ? "true" : "false"}>{authScreen ?? <AppShell pathname={pathname}><RouteContent pathname={pathname} /></AppShell>}</div>;
 }
 
 function AppShell({ pathname, children }: { pathname: string; children: React.ReactNode }) {
@@ -102,6 +103,7 @@ function AppShell({ pathname, children }: { pathname: string; children: React.Re
 function RouteContent({ pathname }: { pathname: string }) {
   const parts = pathname.split("/").filter(Boolean);
   if (parts[0] === "catalog") return parts[1] ? <CatalogDetailScreen id={parts[1]} /> : <CatalogSearchScreen />;
+  if (parts[0] === "admin" && parts[1] === "health") return <AdminHealthScreen />;
   if (parts[0] === "admin" && parts[1] === "catalog") return <AdminCatalogScreen />;
   if (parts[0] === "cards") {
     if (parts[1] === "new" && parts[2] === "manual") return <CardForm />;
@@ -332,6 +334,23 @@ function AdminCatalogScreen() {
   return <><PageTitle eyebrow="CATALOG ADMIN" title="韩国信用卡数据审核" description="管理员权限由数据库和服务端共同验证；候选解析结果必须对照官方资料后才能发布。" action={<button className="primary-btn" onClick={() => void sync()}><Download size={17} />启动受保护同步</button>} />{message && <div className="data-status" role="status">{message}</div>}<div className="two-col admin-catalog-tools"><section className="panel"><h2>上传官方资料</h2><p>支持 PDF、CSV、JSON，最大 5MB。上传后只进入人工审核队列。</p><Field label="官方资料文件"><input type="file" accept="application/pdf,text/csv,application/json" onChange={(event) => setFile(event.target.files?.[0] ?? null)} /></Field><button className="secondary-btn" disabled={!file} onClick={() => void upload()}><Upload size={16} />上传并待审核</button></section><section className="panel"><h2>录入标准化 JSON</h2><p>必须符合 Provider 无关 Schema，并包含官方来源 URL；不会把静态 JSON 描述成实时 API。</p><Field label="目录卡片 JSON"><textarea value={json} onChange={(event) => setJson(event.target.value)} placeholder="粘贴 providerId=manual 的已获授权官方资料结构" /></Field><button className="secondary-btn" disabled={!json.trim()} onClick={() => void importJson()}>校验并进入审核队列</button></section></div><section className="panel"><div className="panel-head"><h2>待审核卡片</h2><span>{queue.length} 张</span></div>{queue.length ? <div className="review-list">{queue.map((card) => <article key={card.id}><div><span className="eyebrow">{card.provider_id} · {card.product_status}</span><h3>{card.name_ko}</h3><p>{card.source_name} · {card.source_url}</p><small>{(card.catalog_benefits ?? []).length} 项候选权益；标记 reviewRequired 的规则不会发布</small></div><div className="button-row"><button className="primary-btn" onClick={() => void review(card, "publish")}>确认并发布</button><button className="secondary-btn" onClick={() => void review(card, "mark_discontinued")}>标记停发</button><button className="danger-btn" onClick={() => void review(card, "reject")}>拒绝</button></div></article>)}</div> : <Empty title="没有待审核卡片" body="新的同步候选或人工资料会显示在这里。" />}</section><section className="panel"><div className="panel-head"><h2>同步历史</h2><span>{runs.length} 次</span></div><div className="sync-run-list">{runs.slice(0, 20).map((run) => <article key={String(run.id)}><b>{String(run.provider_id)}</b><span className={`status ${run.status === "completed" ? "ok" : "warning"}`}>{String(run.status)}</span><small>{formatSyncDate(String(run.started_at))} · 获取 {String(run.fetched_count ?? 0)} · 更新 {String(run.updated_count ?? 0)}</small><p>{run.error_summary ? String(run.error_summary) : "无错误摘要"}</p></article>)}</div></section></>;
 }
 
+function AdminHealthScreen() {
+  const [data, setData] = useState<{ database: string; readiness?: Record<string, unknown>; provider?: Record<string, unknown>; timestamp?: string } | null>(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    const controller = new AbortController();
+    void catalogRequest<{ database: string; readiness?: Record<string, unknown>; provider?: Record<string, unknown>; timestamp?: string }>("/api/admin/health", { signal: controller.signal }).then((result) => setData(result.data)).catch((reason) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "无法读取生产健康状态"); }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, []);
+  if (loading) return <section className="panel catalog-state"><span className="spinner" /><h2>正在检查生产状态…</h2></section>;
+  if (error || !data) return <section className="panel"><Empty title="生产健康检查不可用" body={error || "请确认已执行最新 migration，并使用管理员账户登录。"} /><div className="empty-actions"><Link href="/admin/catalog" className="secondary-btn">返回目录管理</Link></div></section>;
+  const readiness = data.readiness ?? {};
+  const provider = data.provider ?? {};
+  const count = (key: string) => Array.isArray(readiness[key]) ? readiness[key].length : 0;
+  return <><PageTitle eyebrow="PRODUCTION HEALTH" title="生产健康状态" description="仅显示安全状态摘要，不显示密钥、Token、原始供应商响应或用户数据。" action={<Link href="/admin/catalog" className="secondary-btn">目录管理</Link>} /><div className="metric-grid three"><Metric label="数据库" value={data.database === "healthy" ? "正常" : "需处理"} delta={`Schema ${String(readiness.schemaVersion ?? "未知")}`} icon={ShieldCheck} accent={data.database === "healthy"} warn={data.database !== "healthy"} /><Metric label="管理员" value={String(readiness.administratorCount ?? 0)} delta="已初始化账户" icon={User} /><Metric label="已审核目录" value={String(readiness.verifiedCatalogCount ?? 0)} delta={`过期资料 ${String(readiness.staleCatalogCount ?? 0)}`} icon={CreditCardIcon} /></div><div className="two-col"><section className="panel"><h2>数据库验收摘要</h2><dl className="details-list"><div><dt>缺失数据表</dt><dd>{count("missingTables")}</dd></div><div><dt>缺失 RPC</dt><dd>{count("missingFunctions")}</dd></div><div><dt>未启用 RLS</dt><dd>{count("rlsDisabledTables")}</dd></div><div><dt>私有 Storage</dt><dd>{(readiness.storage as { private?: boolean } | undefined)?.private ? "已启用" : "需检查"}</dd></div></dl></section><section className="panel"><h2>数据供应商连接</h2><dl className="details-list"><div><dt>Provider</dt><dd>{String(provider.providerName ?? "未配置")}</dd></div><div><dt>配置状态</dt><dd>{String(provider.configurationStatus ?? "unknown")}</dd></div><div><dt>连接</dt><dd>{provider.connected === true ? "成功" : "未连接"}</dd></div><div><dt>合同版本</dt><dd>{String(provider.contractVersion ?? "未安装")}</dd></div><div><dt>响应时间</dt><dd>{String(provider.responseTimeMs ?? 0)}ms</dd></div></dl></section></div></>;
+}
+
 function CardsScreen() {
   const { cards, archivedCards, benefits, usages, deleteCard, restoreCard, updateCard } = useCardWise();
   const [query, setQuery] = useState(""); const [confirmId, setConfirmId] = useState<string | null>(null); const [view, setView] = useState<"active" | "archived">("active");
@@ -455,12 +474,28 @@ function NotificationsScreen() {
 }
 
 function SettingsScreen() {
-  const { profile, updateProfile, signOut, demoMode } = useCardWise(); const [tab, setTab] = useState("profile"); if (!profile) return <Empty title="正在加载个人设置" body="请稍候，或检查登录状态。" />; return <SettingsEditor key={`${profile.email}-${profile.displayName}`} profile={profile} updateProfile={updateProfile} signOut={signOut} demoMode={demoMode} tab={tab} setTab={setTab} />;
+  const { profile, updateProfile, signOut, demoMode, runtimeConfig } = useCardWise(); const [tab, setTab] = useState("profile"); if (!profile) return <Empty title="正在加载个人设置" body="请稍候，或检查登录状态。" />; return <SettingsEditor key={`${profile.email}-${profile.displayName}`} profile={profile} updateProfile={updateProfile} signOut={signOut} demoMode={demoMode} runtimeConfig={runtimeConfig} tab={tab} setTab={setTab} />;
 }
 
-function SettingsEditor({ profile, updateProfile, signOut, demoMode, tab, setTab }: { profile: import("../app/providers").UserProfile; updateProfile: (profile: import("../app/providers").UserProfile) => Promise<void>; signOut: () => Promise<void>; demoMode: boolean; tab: string; setTab: (tab: string) => void }) {
-  const [form, setForm] = useState(profile); const [saving, setSaving] = useState(false); const save = async () => { setSaving(true); try { await updateProfile(form); } finally { setSaving(false); } };
-  return <><PageTitle eyebrow="PREFERENCES" title="个人设置" description={demoMode ? "演示设置仅保存在当前会话。" : "设置会安全保存到你的 Supabase 账户。"} /><div className="settings-layout"><nav>{[["profile", User, "个人资料"], ["locale", Globe2, "语言与地区"], ["security", ShieldCheck, "安全与隐私"]].map(([key, Icon, label]) => { const C = Icon as LucideIcon; return <button key={String(key)} className={tab === key ? "active" : ""} onClick={() => setTab(String(key))}><C size={18} />{String(label)}</button>; })}</nav><section className="form-panel settings-panel"><h2>{tab === "locale" ? "语言与地区" : tab === "security" ? "安全与隐私" : "个人资料"}</h2><div className="form-grid">{tab === "locale" ? <><Field label="默认语言"><select value={form.defaultLanguage} onChange={(e) => setForm({ ...form, defaultLanguage: e.target.value as typeof form.defaultLanguage })}><option value="zh-CN">简体中文</option><option value="ko-KR">한국어</option><option value="en">English</option></select></Field><Field label="默认货币"><select value={form.defaultCurrency} onChange={(e) => setForm({ ...form, defaultCurrency: e.target.value })}><option>KRW</option><option>CNY</option><option>USD</option><option>JPY</option><option>EUR</option></select></Field><Field label="默认时区"><select value={form.defaultTimezone} onChange={(e) => setForm({ ...form, defaultTimezone: e.target.value as typeof form.defaultTimezone })}><option>Asia/Seoul</option><option>Asia/Shanghai</option><option>UTC</option></select></Field><label className="toggle-row"><span>邮件提醒<small>需要另外配置邮件发送适配器</small></span><input type="checkbox" checked={form.emailNotifications} onChange={(e) => setForm({ ...form, emailNotifications: e.target.checked })} /><i /></label></> : tab === "security" ? <><div className="privacy-box"><ShieldCheck /><div><b>敏感信息保护</b><p>CardWise 不收集完整卡号、CVC、银行卡密码、有效期或支付验证码。</p></div></div><button className="secondary-btn" onClick={() => void signOut()}>{demoMode ? "返回登录页" : "安全退出登录"}</button></> : <><Field label="显示名称"><input value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })} /></Field><Field label="邮箱"><input value={form.email} disabled /></Field></>} </div>{tab !== "security" && <div className="form-footer"><button className="primary-btn" disabled={saving || !form.displayName.trim()} onClick={() => void save()}>{saving ? "保存中…" : "保存设置"}</button></div>}</section></div></>;
+function SettingsEditor({ profile, updateProfile, signOut, demoMode, runtimeConfig, tab, setTab }: { profile: import("../app/providers").UserProfile; updateProfile: (profile: import("../app/providers").UserProfile) => Promise<void>; signOut: () => Promise<void>; demoMode: boolean; runtimeConfig: import("../app/providers").CardWiseRuntimeConfig; tab: string; setTab: (tab: string) => void }) {
+  const router = useRouter();
+  const [form, setForm] = useState(profile); const [saving, setSaving] = useState(false); const [confirmation, setConfirmation] = useState(""); const [accountBusy, setAccountBusy] = useState(false); const [accountMessage, setAccountMessage] = useState("");
+  const save = async () => { setSaving(true); try { await updateProfile(form); } finally { setSaving(false); } };
+  const deleteAccount = async () => {
+    setAccountBusy(true); setAccountMessage("");
+    try {
+      const response = await fetch("/api/account/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirmation }) });
+      const result = await response.json() as { data?: { deleted?: boolean }; error?: { message?: string } };
+      if (!response.ok || !result.data?.deleted) throw new Error(result.error?.message ?? "账户删除失败");
+      if (runtimeConfig.supabaseUrl && runtimeConfig.supabaseAnonKey) await createBrowserClient(runtimeConfig.supabaseUrl, runtimeConfig.supabaseAnonKey).auth.signOut({ scope: "local" });
+      router.replace("/login?accountDeleted=1");
+    } catch (error) { setAccountMessage(error instanceof Error ? error.message : "账户删除失败"); }
+    finally { setAccountBusy(false); }
+  };
+  // A regular anchor preserves the browser's attachment download response from this Route Handler.
+  // eslint-disable-next-line @next/next/no-html-link-for-pages
+  const securityPanel = demoMode ? <div className="privacy-box"><ShieldCheck /><div><b>演示会话</b><p>演示数据只存在于当前浏览会话，没有远程账户可导出或删除。</p></div></div> : <><div className="privacy-box"><ShieldCheck /><div><b>敏感信息保护</b><p>CardWise 不收集完整卡号、CVC、银行卡密码、有效期或支付验证码。</p></div></div><div className="button-row"><a className="secondary-btn" href="/api/account/export"><Download size={16} />导出我的数据</a><button className="secondary-btn" onClick={() => void signOut()}>安全退出登录</button></div><section className="danger-zone"><h3>删除账户</h3><p>请先导出数据。删除会清理你的私有文件、Auth 账户与业务数据，完成后无法恢复；管理员必须先转移职责。</p><Field label="二次确认" hint="请输入：删除我的账户"><input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="off" /></Field>{accountMessage && <p className="form-message" role="alert">{accountMessage}</p>}<button className="danger-btn" disabled={accountBusy || confirmation !== "删除我的账户"} onClick={() => void deleteAccount()}>{accountBusy ? "正在安全删除…" : "永久删除我的账户"}</button></section></>;
+  return <><PageTitle eyebrow="PREFERENCES" title="个人设置" description={demoMode ? "演示设置仅保存在当前会话。" : "设置会安全保存到你的 Supabase 账户。"} /><div className="settings-layout"><nav>{[["profile", User, "个人资料"], ["locale", Globe2, "语言与地区"], ["security", ShieldCheck, "安全与隐私"]].map(([key, Icon, label]) => { const C = Icon as LucideIcon; return <button key={String(key)} className={tab === key ? "active" : ""} onClick={() => setTab(String(key))}><C size={18} />{String(label)}</button>; })}</nav><section className="form-panel settings-panel"><h2>{tab === "locale" ? "语言与地区" : tab === "security" ? "安全与隐私" : "个人资料"}</h2><div className="form-grid">{tab === "locale" ? <><Field label="默认语言"><select value={form.defaultLanguage} onChange={(e) => setForm({ ...form, defaultLanguage: e.target.value as typeof form.defaultLanguage })}><option value="zh-CN">简体中文</option><option value="ko-KR">한국어</option><option value="en">English</option></select></Field><Field label="默认货币"><select value={form.defaultCurrency} onChange={(e) => setForm({ ...form, defaultCurrency: e.target.value })}><option>KRW</option><option>CNY</option><option>USD</option><option>JPY</option><option>EUR</option></select></Field><Field label="默认时区"><select value={form.defaultTimezone} onChange={(e) => setForm({ ...form, defaultTimezone: e.target.value as typeof form.defaultTimezone })}><option>Asia/Seoul</option><option>Asia/Shanghai</option><option>UTC</option></select></Field><label className="toggle-row"><span>邮件提醒<small>需要另外配置邮件发送适配器</small></span><input type="checkbox" checked={form.emailNotifications} onChange={(e) => setForm({ ...form, emailNotifications: e.target.checked })} /><i /></label></> : tab === "security" ? securityPanel : <><Field label="显示名称"><input value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })} /></Field><Field label="邮箱"><input value={form.email} disabled /></Field></>} </div>{tab !== "security" && <div className="form-footer"><button className="primary-btn" disabled={saving || !form.displayName.trim()} onClick={() => void save()}>{saving ? "保存中…" : "保存设置"}</button></div>}</section></div></>;
 }
 
 function HelpScreen() {
@@ -468,11 +503,74 @@ function HelpScreen() {
   return <><PageTitle eyebrow="HELP CENTER" title="如何更聪明地使用每一张卡" description="快速了解数据准确性、额度计算与隐私保护。" /><label className="help-search"><Search /><input placeholder="搜索帮助主题" /></label><div className="help-grid"><section className="panel"><h2>常见问题</h2>{faqs.map((f, i) => <button className="faq" key={f.q} onClick={() => setOpen(open === i ? -1 : i)}><span><b>{f.q}</b>{open === i && <p>{f.a}</p>}</span><ChevronDown size={18} /></button>)}</section><aside className="support-card"><Sparkles /><h2>需要开始使用？</h2><p>先添加信用卡，再录入每项权益的结构化规则。你也可以直接体验演示数据。</p><Link href="/cards/new" className="primary-btn">添加第一张卡</Link></aside></div></>;
 }
 
+const authErrorMessage = (error: unknown) => {
+  const code = typeof error === "object" && error && "code" in error ? String((error as { code?: unknown }).code ?? "") : "";
+  if (["invalid_credentials", "user_not_found"].includes(code)) return "邮箱或密码不正确。";
+  if (code === "email_not_confirmed") return "请先通过邮箱中的链接完成验证。";
+  if (["user_already_exists", "email_exists"].includes(code)) return "该邮箱已注册，请直接登录或重置密码。";
+  if (code === "signup_disabled") return "当前暂未开放新用户注册。";
+  if (["over_email_send_rate_limit", "email_rate_limit_exceeded"].includes(code)) return "邮件发送过于频繁，请稍后再试。";
+  if (code === "weak_password") return "密码强度不足，请至少使用 8 位并避免常见密码。";
+  if (code === "same_password") return "新密码不能与当前密码相同。";
+  return "认证请求失败，请稍后再试。";
+};
+
+const authCallbackUrl = (next: string) => {
+  const url = new URL("/auth/callback", location.origin);
+  url.searchParams.set("next", next);
+  return url.toString();
+};
+
+function AuthLayout({ children }: { children: React.ReactNode }) {
+  return <main className="auth-page"><section className="auth-brand"><div className="brand light-brand"><span className="brand-mark"><CreditCardIcon size={21} /></span><span>CardWise</span></div><div><span className="eyebrow light">YOUR BENEFITS, CLEARLY</span><h1>每一项权益，<br />都不该被忘记。</h1><p>追踪信用卡优惠额度与使用次数，在每次消费前找到更合适的卡。</p><div className="auth-art"><CreditCardVisual card={{ id: "auth", issuer: "CardWise", name: "Benefit Manager", nickname: "MY SMART CARD", network: "Visa", lastFour: "2026", color: "linear-gradient(135deg,#7f70ff,#4638ce)", isFavorite: true, isActive: true, annualFee: 0, annualFeeMonth: 1, openedAt: today(), previousMonthSpend: 0, currentQualifyingSpend: 0 }} /><div className="floating-saving"><Sparkles size={18} /><span>本月已节省<strong>₩105,300</strong></span></div></div></div><small>演示数据不代表任何真实银行产品</small></section><section className="auth-form-wrap">{children}</section></main>;
+}
+
 function AuthScreen({ register: isRegister }: { register: boolean }) {
-  const router = useRouter(); const [email, setEmail] = useState(""); const [password, setPassword] = useState(""); const [message, setMessage] = useState(""); const [loading, setLoading] = useState(false); const configured = Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
-  const submit = async (e: FormEvent) => { e.preventDefault(); setLoading(true); setMessage(""); if (!configured) { await new Promise((r) => setTimeout(r, 500)); router.push("/dashboard"); return; } const supabase = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!); const result = isRegister ? await supabase.auth.signUp({ email, password }) : await supabase.auth.signInWithPassword({ email, password }); setLoading(false); if (result.error) setMessage(result.error.message); else router.push("/dashboard"); };
-  const magic = async () => { if (!configured) { router.push("/dashboard"); return; } setLoading(true); const supabase = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!); const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: `${location.origin}/dashboard` } }); setMessage(error?.message ?? "登录链接已发送，请检查邮箱。"); setLoading(false); };
-  return <main className="auth-page"><section className="auth-brand"><div className="brand light-brand"><span className="brand-mark"><CreditCardIcon size={21} /></span><span>CardWise</span></div><div><span className="eyebrow light">YOUR BENEFITS, CLEARLY</span><h1>每一项权益，<br />都不该被忘记。</h1><p>追踪信用卡优惠额度与使用次数，在每次消费前找到更合适的卡。</p><div className="auth-art"><CreditCardVisual card={{ id: "auth", issuer: "CardWise", name: "Benefit Manager", nickname: "MY SMART CARD", network: "Visa", lastFour: "2026", color: "linear-gradient(135deg,#7f70ff,#4638ce)", isFavorite: true, isActive: true, annualFee: 0, annualFeeMonth: 1, openedAt: today(), previousMonthSpend: 0, currentQualifyingSpend: 0 }} /><div className="floating-saving"><Sparkles size={18} /><span>本月已节省<strong>₩105,300</strong></span></div></div></div><small>演示数据不代表任何真实银行产品</small></section><section className="auth-form-wrap"><form className="auth-form" onSubmit={submit}><span className="eyebrow">WELCOME</span><h2>{isRegister ? "创建 CardWise 账户" : "欢迎回来"}</h2><p>{isRegister ? "开始管理属于你的信用卡权益。" : "登录后继续管理你的权益与额度。"}</p>{!configured && <div className="demo-callout"><Sparkles size={17} /><span>当前为演示模式，可直接进入体验。</span></div>}<Field label="邮箱"><input type="email" required={configured} value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" /></Field><Field label="密码"><input type="password" required={configured} minLength={configured ? 8 : undefined} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="至少 8 位" /></Field>{message && <p className="form-message">{message}</p>}<button className="primary-btn wide" disabled={loading}>{loading ? "请稍候…" : isRegister ? "注册账户" : configured ? "登录" : "进入演示模式"}</button><button type="button" className="secondary-btn wide" onClick={magic}>使用 Magic Link</button><p className="auth-switch">{isRegister ? "已经有账户？" : "还没有账户？"}<Link href={isRegister ? "/login" : "/register"}>{isRegister ? "立即登录" : "免费注册"}</Link></p></form></section></main>;
+  const router = useRouter(); const searchParams = useSearchParams(); const { runtimeConfig, demoMode, configurationMissing } = useCardWise(); const [email, setEmail] = useState(""); const [password, setPassword] = useState(""); const [message, setMessage] = useState(""); const [loading, setLoading] = useState(false); const configured = Boolean(runtimeConfig.supabaseUrl && runtimeConfig.supabaseAnonKey);
+  const nextValue = searchParams.get("next"); const next = nextValue?.startsWith("/") && !nextValue.startsWith("//") ? nextValue : "/dashboard";
+  const queryMessage = searchParams.get("accountDeleted") === "1" ? "账户及个人数据已删除。" : searchParams.get("error") === "auth_callback_failed" ? "登录链接无效或已过期，请重新请求。" : searchParams.get("error") === "configuration_required" ? "生产环境尚未配置认证服务。" : "";
+  const submit = async (event: FormEvent) => {
+    event.preventDefault(); setLoading(true); setMessage("");
+    try {
+      if (demoMode) { router.push("/dashboard"); return; }
+      if (!configured) { setMessage("认证服务尚未配置，请联系站点管理员。"); return; }
+      const supabase = createBrowserClient(runtimeConfig.supabaseUrl!, runtimeConfig.supabaseAnonKey!);
+      if (isRegister) {
+        const result = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: authCallbackUrl(next) } });
+        if (result.error) throw result.error;
+        if (!result.data.session) { setMessage("注册成功，请检查邮箱并完成验证后登录。"); return; }
+      } else {
+        const result = await supabase.auth.signInWithPassword({ email, password });
+        if (result.error) throw result.error;
+      }
+      router.replace(next);
+    } catch (error) { setMessage(authErrorMessage(error)); }
+    finally { setLoading(false); }
+  };
+  const magic = async () => {
+    if (!configured || !email.trim()) { setMessage("请先填写有效邮箱。"); return; }
+    setLoading(true); setMessage("");
+    try {
+      const supabase = createBrowserClient(runtimeConfig.supabaseUrl!, runtimeConfig.supabaseAnonKey!);
+      const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: authCallbackUrl(next) } });
+      if (error) throw error;
+      setMessage("登录链接已发送，请检查邮箱。");
+    } catch (error) { setMessage(authErrorMessage(error)); }
+    finally { setLoading(false); }
+  };
+  return <AuthLayout><form className="auth-form" onSubmit={submit}><span className="eyebrow">WELCOME</span><h2>{isRegister ? "创建 CardWise 账户" : "欢迎回来"}</h2><p>{isRegister ? "开始管理属于你的信用卡权益。" : "登录后继续管理你的权益与额度。"}</p>{demoMode && <div className="demo-callout"><Sparkles size={17} /><span>当前为明确启用的演示模式，数据不会写入远程数据库。</span></div>}{configurationMissing && <div className="demo-callout warning"><Bell size={17} /><span>生产认证服务尚未配置，演示数据不会自动加载。</span></div>}<Field label="邮箱"><input type="email" required={configured} value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" autoComplete="email" /></Field><Field label="密码"><input type="password" required={configured} minLength={configured ? 8 : undefined} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="至少 8 位" autoComplete={isRegister ? "new-password" : "current-password"} /></Field>{(message || queryMessage) && <p className="form-message" role="status">{message || queryMessage}</p>}<button className="primary-btn wide" disabled={loading || configurationMissing}>{loading ? "请稍候…" : isRegister ? "注册账户" : configured ? "登录" : demoMode ? "进入演示模式" : "等待管理员配置"}</button>{configured && <><button type="button" className="secondary-btn wide" disabled={loading} onClick={() => void magic()}>使用 Magic Link</button><Link className="auth-text-link" href="/forgot-password">忘记密码？</Link></>}<p className="auth-switch">{isRegister ? "已经有账户？" : "还没有账户？"}<Link href={isRegister ? "/login" : "/register"}>{isRegister ? "立即登录" : "免费注册"}</Link></p></form></AuthLayout>;
+}
+
+function ForgotPasswordScreen() {
+  const { runtimeConfig } = useCardWise(); const [email, setEmail] = useState(""); const [message, setMessage] = useState(""); const [loading, setLoading] = useState(false); const configured = Boolean(runtimeConfig.supabaseUrl && runtimeConfig.supabaseAnonKey);
+  const submit = async (event: FormEvent) => { event.preventDefault(); if (!configured) { setMessage("认证服务尚未配置。"); return; } setLoading(true); setMessage(""); try { const supabase = createBrowserClient(runtimeConfig.supabaseUrl!, runtimeConfig.supabaseAnonKey!); const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: authCallbackUrl("/reset-password") }); if (error) throw error; setMessage("如果该邮箱已注册，将收到密码重置链接。"); } catch (error) { setMessage(authErrorMessage(error)); } finally { setLoading(false); } };
+  return <AuthLayout><form className="auth-form" onSubmit={submit}><span className="eyebrow">ACCOUNT RECOVERY</span><h2>重置密码</h2><p>我们只会向已注册邮箱发送一次性重置链接。</p><Field label="邮箱"><input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" /></Field>{message && <p className="form-message" role="status">{message}</p>}<button className="primary-btn wide" disabled={loading || !configured}>{loading ? "正在发送…" : "发送重置链接"}</button><p className="auth-switch"><Link href="/login">返回登录</Link></p></form></AuthLayout>;
+}
+
+function ResetPasswordScreen() {
+  const router = useRouter(); const { runtimeConfig } = useCardWise(); const [password, setPassword] = useState(""); const [message, setMessage] = useState(""); const [loading, setLoading] = useState(false);
+  const submit = async (event: FormEvent) => { event.preventDefault(); if (!runtimeConfig.supabaseUrl || !runtimeConfig.supabaseAnonKey) return; setLoading(true); setMessage(""); try { const supabase = createBrowserClient(runtimeConfig.supabaseUrl, runtimeConfig.supabaseAnonKey); const { error } = await supabase.auth.updateUser({ password }); if (error) throw error; router.replace("/dashboard"); } catch (error) { setMessage(authErrorMessage(error)); } finally { setLoading(false); } };
+  return <AuthLayout><form className="auth-form" onSubmit={submit}><span className="eyebrow">NEW PASSWORD</span><h2>设置新密码</h2><p>新密码至少 8 位，更新后当前安全会话会继续有效。</p><Field label="新密码"><input type="password" required minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" /></Field>{message && <p className="form-message" role="alert">{message}</p>}<button className="primary-btn wide" disabled={loading}>{loading ? "正在更新…" : "更新密码"}</button></form></AuthLayout>;
 }
 
 function Field({ label, hint, error, children }: { label: string; hint?: string; error?: string; children: React.ReactNode }) { return <label className={error ? "field error" : "field"}><span>{label}{hint && <small>{hint}</small>}</span>{children}{error && <em>{error}</em>}</label>; }

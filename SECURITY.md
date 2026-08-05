@@ -19,9 +19,11 @@ CardWise 不收集或保存完整卡号、CVC、银行卡密码、有效期、�
 - Coocon、data.go.kr、Cron 与 service role 凭据只允许使用无 `NEXT_PUBLIC_` 前缀的服务端变量。同步错误不会返回供应商原始响应、密钥或堆栈。
 - 官方 PDF/CSV/JSON 限制为 5MB 并存入私有 Storage；解析结果默认为 `needs_review`，人工确认前不会进入确定性推荐。
 
-## 账户删除
+## 账户导出与删除
 
-当前版本尚未开放账户自助删除，因为删除 Auth 用户需要受控的服务端管理权限。上线前应实现二次确认流程：先导出可携带数据、删除 Storage 对象，再删除 Auth 用户并依靠级联外键清理业务数据；不得把 service role key 放入客户端。
+`GET /api/account/export` 只导出当前用户的业务数据和上传元数据，不包含文件正文、Token、Cookie、供应商原始响应或服务端凭据。`POST /api/account/delete` 要求精确二次确认，先删除该用户私有 Storage，再删除 Auth 用户并依靠级联外键清理业务数据；只保留去标识化删除审计。管理员必须先转移职责，service role key 始终只在服务端。
+
+公共 `/api/health` 和管理员 `/api/admin/health` 只返回状态、计数、合同版本与延迟分类。结构化日志会拒绝 secret、token、cookie、支付金额和用户内容字段。
 
 ## 来源可信度
 

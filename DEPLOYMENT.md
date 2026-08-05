@@ -13,7 +13,7 @@ supabase db push
 supabase db seed
 ```
 
-也可在 SQL Editor 中按顺序执行 `supabase/migrations/202608040001_cardwise.sql`、`supabase/migrations/202608050001_card_lifecycle.sql`，再执行 `supabase/seed.sql`。随后检查所有 13 张表均已启用并强制执行 RLS，并确认 authenticated 角色可执行两个卡片生命周期函数。
+也可在 SQL Editor 中按文件名顺序执行 `supabase/migrations/` 中的全部 SQL；最后一个必须是 `202608050003_production_activation.sql`。不要跳过历史 migration。随后运行 `npm run verify:production` 检查表、RPC、RLS、私有 Storage、管理员和已审核目录。
 
 在 Authentication → URL Configuration 设置生产 Site URL，并加入：
 
@@ -44,7 +44,9 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 
 韩国信用卡目录至少配置 `CARD_CATALOG_PROVIDER`。Coocon 需要签约后提供的 Base URL、API Key、Client ID、Client Secret 及正式字段合同；公共数据需要 `DATA_GO_KR_SERVICE_KEY`、明确的数据集名称、许可和接口文档。没有这些条件时系统会显示未配置状态。
 
-定时同步需要仅存在于服务端的 `SUPABASE_SERVICE_ROLE_KEY` 与高强度 `CARD_CATALOG_CRON_SECRET`，请求 `POST /api/admin/card-catalog/sync` 时通过 `x-cardwise-cron-secret` 发送。限制调用频率，并为每次任务提供唯一 `idempotencyKey`。
+定时同步需要仅存在于服务端的 `SUPABASE_SERVICE_ROLE_KEY` 与至少 32 字符的 `CARDWISE_CRON_SECRET`，请求 `POST /api/admin/card-catalog/sync` 时通过 `x-cardwise-cron-secret` 发送。限制调用频率，并为每次任务提供唯一 `idempotencyKey`。旧变量 `CARD_CATALOG_CRON_SECRET` 仅保留兼容，不应用于新部署。
+
+完整的 Sites 环境变量、Auth callback、管理员 bootstrap、RLS 双账号验收、健康检查、首张真实卡审核和 Cron 操作顺序见 [PRODUCTION_ACTIVATION.md](./PRODUCTION_ACTIVATION.md)。
 
 ## 3. 部署到 Vercel
 

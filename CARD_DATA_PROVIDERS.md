@@ -6,7 +6,7 @@ CardWise 只把已获授权、经过 Schema 校验和人工审核的数据描述
 
 | Provider | 当前状态 | 覆盖范围 | 申请或费用 |
 | --- | --- | --- | --- |
-| Coocon / 쿠콘 | 适配接口已建立，尚未签约及安装正式字段合同 | 以商业合同和正式 API 文档为准 | 联系 Coocon 申请企业接口，通常需要签约并可能产生费用 |
+| Coocon / 쿠콘 | Skeleton；尚未签约，未安装正式字段合同，不会发起生产请求 | 以商业合同和正式 API 文档为准 | 联系 Coocon 申请企业接口，通常需要签约并可能产生费用 |
 | data.go.kr 公共数据 | 适配接口已建立，尚未选择具体数据集 | 只覆盖所选开放数据集明确列出的机构和字段，通常不含完整优惠 | 在 data.go.kr 申请 Service Key，并逐项确认许可、更新频率和字段 |
 | Manual 官方资料 | 可用 | 仅包含管理员有权使用并已审核发布的官方产品页、PDF、CSV 或 JSON | 无 API 费用；需要人工核对和持续维护 |
 | Mock | 仅自动测试 | 虚构且带有 `TEST ONLY` 标记 | 禁止在生产启用 |
@@ -27,7 +27,7 @@ DATA_GO_KR_SERVICE_KEY=
 DATA_GO_KR_DATASET_NAME=
 
 SUPABASE_SERVICE_ROLE_KEY=
-CARD_CATALOG_CRON_SECRET=
+CARDWISE_CRON_SECRET=
 ```
 
 所有 Key、Secret 和 service role 值均为服务端变量。`NEXT_PUBLIC_CARD_CATALOG_PROVIDER` 只包含非敏感 Provider ID，用于管理员页面显示默认选项。

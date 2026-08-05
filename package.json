@@ -13,7 +13,10 @@
     "start": "vinext start",
     "test": "vitest run --config vitest.config.ts",
     "test:ui": "vitest --ui",
-    "test:e2e": "playwright test",
+    "test:e2e": "node scripts/run-e2e.mjs",
+    "verify:production": "node --env-file-if-exists=.env.local scripts/verify-production.mjs",
+    "verify:production:rls": "node --env-file-if-exists=.env.local scripts/verify-production-rls.mjs",
+    "bootstrap:admin": "node --env-file-if-exists=.env.local scripts/bootstrap-admin.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"
