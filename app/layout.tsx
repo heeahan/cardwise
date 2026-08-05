@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import "./globals.css";
-import { CardWiseProvider } from "./providers";
+import { CardWiseProvider, type CardWiseRuntimeConfig } from "./providers";
 
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
@@ -20,5 +20,14 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="zh-CN"><body><CardWiseProvider>{children}</CardWiseProvider></body></html>;
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() || null;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim() || null;
+  const configured = Boolean(supabaseUrl && supabaseAnonKey);
+  const runtimeConfig: CardWiseRuntimeConfig = {
+    supabaseUrl,
+    supabaseAnonKey,
+    appUrl: process.env.NEXT_PUBLIC_APP_URL?.trim() || "http://localhost:3000",
+    demoEnabled: !configured && (process.env.CARDWISE_ENABLE_DEMO_MODE === "true" || process.env.NODE_ENV === "development"),
+  };
+  return <html lang="zh-CN"><body><CardWiseProvider runtimeConfig={runtimeConfig}>{children}</CardWiseProvider></body></html>;
 }

@@ -9,6 +9,17 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const { id } = await params;
     const { supabase, user } = await requireUser();
     const input = parsed.data;
+    const { data: current } = await supabase.from("transactions").select("id,card_id").eq("id", id).eq("user_id", user.id).is("deleted_at", null).maybeSingle();
+    if (!current) return NextResponse.json({ data: null, error: { code: "NOT_FOUND", message: "消费记录不存在或无权访问" } }, { status: 404 });
+    let selectedBenefit: { id: string; card_id: string; name: string; rule: Record<string, unknown> } | null = null;
+    if (input.cardId !== undefined || input.benefitId !== undefined) {
+      const { data: currentUsage } = await supabase.from("benefit_usages").select("benefit_id").eq("transaction_id", id).eq("user_id", user.id).is("deleted_at", null).maybeSingle();
+      const targetBenefitId = input.benefitId ?? currentUsage?.benefit_id; const targetCardId = input.cardId ?? current.card_id;
+      if (!targetBenefitId) return NextResponse.json({ data: null, error: { code: "NOT_FOUND", message: "关联权益不存在" } }, { status: 404 });
+      const { data } = await supabase.from("card_benefits").select("id,card_id,name,rule").eq("id", targetBenefitId).eq("card_id", targetCardId).eq("user_id", user.id).is("deleted_at", null).maybeSingle();
+      if (!data) return NextResponse.json({ data: null, error: { code: "NOT_FOUND", message: "权益与卡片不匹配或无权访问" } }, { status: 404 });
+      selectedBenefit = data;
+    }
     const payload = {
       ...(input.cardId !== undefined && { card_id: input.cardId }),
       ...(input.occurredAt !== undefined && { occurred_at: input.occurredAt }),
@@ -24,6 +35,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const usagePayload = {
       ...(input.cardId !== undefined && { card_id: input.cardId }),
       ...(input.benefitId !== undefined && { benefit_id: input.benefitId }),
+      ...(selectedBenefit && { benefit_name_snapshot: selectedBenefit.name, rule_snapshot: selectedBenefit.rule }),
       ...(input.occurredAt !== undefined && { occurred_at: input.occurredAt }),
       ...(input.discountAmount !== undefined && { discount_amount: input.discountAmount }),
       ...(input.usageCount !== undefined && { usage_count: input.usageCount }),

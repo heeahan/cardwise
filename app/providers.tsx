@@ -6,18 +6,32 @@ import { demoBenefits, demoCards, demoUsages } from "../lib/data/demo";
 import type { Benefit, BenefitRule, BenefitUsage, CreditCard } from "../lib/benefit-engine/types";
 import { createClient, isSupabaseConfigured } from "../lib/supabase/client";
 
+export interface CardWiseRuntimeConfig {
+  supabaseUrl: string | null;
+  supabaseAnonKey: string | null;
+  appUrl: string;
+  demoEnabled: boolean;
+}
+
 interface CardWiseState {
   cards: CreditCard[];
+  archivedCards: CreditCard[];
   benefits: Benefit[];
   usages: BenefitUsage[];
   demoMode: boolean;
   loading: boolean;
   dataError: string | null;
+  profile: UserProfile | null;
   toast: string | null;
+  runtimeConfig: CardWiseRuntimeConfig;
+  configurationMissing: boolean;
   reload: () => Promise<void>;
   addCard: (card: Omit<CreditCard, "id">) => CreditCard;
   updateCard: (id: string, changes: Partial<CreditCard>) => void;
   deleteCard: (id: string) => void;
+  restoreCard: (id: string) => void;
+  signOut: () => Promise<void>;
+  updateProfile: (changes: UserProfile) => Promise<void>;
   addBenefit: (benefit: Omit<Benefit, "id">) => Benefit;
   updateBenefit: (id: string, changes: Partial<Benefit>) => void;
   deleteBenefit: (id: string) => void;
@@ -33,6 +47,7 @@ interface CardRow {
   last_four: string | null; color: string; status: string; is_favorite: boolean; annual_fee: number;
   annual_fee_month: number | null; opened_at: string | null; previous_month_spend_requirement: number;
   current_qualifying_spend: number; notes: string | null;
+  currency?: string | null; statement_cycle_day?: number | null; sort_order?: number;
 }
 interface BenefitRow {
   id: string; card_id: string; name: string; category_slug: string; subcategory: string | null;
@@ -49,6 +64,8 @@ interface TransactionRow {
   benefit_usages: UsageRow[];
 }
 interface ApiEnvelope<T> { data: T; error: { message?: string } | null }
+export interface UserProfile { displayName: string; email: string; defaultLanguage: "zh-CN" | "ko-KR" | "en"; defaultCurrency: string; defaultTimezone: "Asia/Seoul" | "Asia/Shanghai" | "UTC"; emailNotifications: boolean }
+interface ProfileRow { display_name?: string | null; email?: string; default_language?: UserProfile["defaultLanguage"]; default_currency?: string; default_timezone?: UserProfile["defaultTimezone"]; email_notifications?: boolean }
 
 const CardWiseContext = createContext<CardWiseState | null>(null);
 const publicPaths = new Set(["/login", "/register", "/forgot-password"]);
@@ -59,7 +76,7 @@ const mapCard = (row: CardRow): CreditCard => ({
   annualFee: Number(row.annual_fee), annualFeeMonth: row.annual_fee_month ?? 1,
   openedAt: row.opened_at ?? new Date().toISOString().slice(0, 10),
   previousMonthSpend: Number(row.previous_month_spend_requirement), currentQualifyingSpend: Number(row.current_qualifying_spend),
-  notes: row.notes ?? undefined,
+  currency: row.currency ?? "KRW", statementCycleDay: row.statement_cycle_day ?? undefined, sortOrder: row.sort_order ?? 0, notes: row.notes ?? undefined,
 });
 const mapBenefit = (row: BenefitRow): Benefit => ({
   id: row.id, cardId: row.card_id, name: row.name, category: row.category_slug,
@@ -75,6 +92,7 @@ const mapTransaction = (row: TransactionRow): BenefitUsage[] => row.benefit_usag
   usageCount: Number(usage.usage_count), pointsEarned: Number(row.points_earned), ruleSnapshot: usage.rule_snapshot,
   note: row.note ?? undefined,
 }));
+const mapProfile = (row: ProfileRow): UserProfile => ({ displayName: row.display_name ?? "CardWise 用户", email: row.email ?? "", defaultLanguage: row.default_language ?? "zh-CN", defaultCurrency: row.default_currency ?? "KRW", defaultTimezone: row.default_timezone ?? "Asia/Seoul", emailNotifications: row.email_notifications ?? false });
 
 async function callApi<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, { ...init, headers: { "Content-Type": "application/json", ...init?.headers }, cache: "no-store" });
@@ -89,6 +107,11 @@ const cardPayload = (card: Partial<CreditCard>) => ({
   ...(card.lastFour !== undefined && { lastFour: card.lastFour }), ...(card.annualFee !== undefined && { annualFee: card.annualFee }),
   ...(card.annualFeeMonth !== undefined && { annualFeeMonth: card.annualFeeMonth }),
   ...(card.previousMonthSpend !== undefined && { previousMonthSpend: card.previousMonthSpend }),
+  ...(card.currentQualifyingSpend !== undefined && { currentQualifyingSpend: card.currentQualifyingSpend }),
+  ...(card.currency !== undefined && { currency: card.currency }), ...(card.statementCycleDay !== undefined && { statementCycleDay: card.statementCycleDay }),
+  ...(card.color !== undefined && { color: card.color }), ...(card.notes !== undefined && { notes: card.notes }),
+  ...(card.isFavorite !== undefined && { isFavorite: card.isFavorite }), ...(card.isActive !== undefined && { isActive: card.isActive }),
+  ...(card.sortOrder !== undefined && { sortOrder: card.sortOrder }),
 });
 const benefitPayload = (benefit: Partial<Benefit>) => ({
   ...(benefit.cardId !== undefined && { cardId: benefit.cardId }), ...(benefit.name !== undefined && { name: benefit.name }),
@@ -99,12 +122,16 @@ const benefitPayload = (benefit: Partial<Benefit>) => ({
   ...(benefit.verifiedByUser !== undefined && { verifiedByUser: benefit.verifiedByUser }), ...(benefit.confidence !== undefined && { confidence: benefit.confidence }),
 });
 
-export function CardWiseProvider({ children }: { children: ReactNode }) {
-  const demoMode = !isSupabaseConfigured();
+export function CardWiseProvider({ children, runtimeConfig }: { children: ReactNode; runtimeConfig: CardWiseRuntimeConfig }) {
+  const configured = isSupabaseConfigured(runtimeConfig);
+  const demoMode = !configured && runtimeConfig.demoEnabled;
+  const configurationMissing = !configured && !demoMode;
   const [cards, setCards] = useState<CreditCard[]>(demoMode ? demoCards : []);
+  const [archivedCards, setArchivedCards] = useState<CreditCard[]>([]);
   const [benefits, setBenefits] = useState<Benefit[]>(demoMode ? demoBenefits : []);
   const [usages, setUsages] = useState<BenefitUsage[]>(demoMode ? demoUsages : []);
-  const [loading, setLoading] = useState(!demoMode);
+  const [profile, setProfile] = useState<UserProfile | null>(demoMode ? { displayName: "演示用户", email: "demo@cardwise.local", defaultLanguage: "zh-CN", defaultCurrency: "KRW", defaultTimezone: "Asia/Seoul", emailNotifications: false } : null);
+  const [loading, setLoading] = useState(configured);
   const [dataError, setDataError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const pathname = usePathname();
@@ -116,26 +143,28 @@ export function CardWiseProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const reload = useCallback(async () => {
-    if (demoMode) return;
+    if (demoMode || configurationMissing) return;
     setLoading(true);
     setDataError(null);
     try {
-      const [cardRows, benefitRows, transactionRows] = await Promise.all([
-        callApi<CardRow[]>("/api/cards"), callApi<BenefitRow[]>("/api/benefits"), callApi<TransactionRow[]>("/api/transactions"),
+      const [cardRows, archivedCardRows, benefitRows, transactionRows, profileRow] = await Promise.all([
+        callApi<CardRow[]>("/api/cards"), callApi<CardRow[]>("/api/cards?archived=1"), callApi<BenefitRow[]>("/api/benefits"), callApi<TransactionRow[]>("/api/transactions"), callApi<ProfileRow>("/api/profile"),
       ]);
       setCards(cardRows.map(mapCard));
+      setArchivedCards(archivedCardRows.map(mapCard));
       setBenefits(benefitRows.map(mapBenefit));
       setUsages(transactionRows.flatMap(mapTransaction));
+      setProfile(mapProfile(profileRow));
     } catch (error) {
       setDataError(error instanceof Error ? error.message : "数据加载失败");
     } finally {
       setLoading(false);
     }
-  }, [demoMode]);
+  }, [configurationMissing, demoMode]);
 
   useEffect(() => {
-    if (demoMode) return;
-    const supabase = createClient();
+    if (demoMode || configurationMissing) return;
+    const supabase = createClient(runtimeConfig);
     void supabase.auth.getUser().then(({ data }) => {
       if (data.user) void reload();
       else {
@@ -146,12 +175,12 @@ export function CardWiseProvider({ children }: { children: ReactNode }) {
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) void reload();
       else {
-        setCards([]); setBenefits([]); setUsages([]); setLoading(false);
+        setCards([]); setArchivedCards([]); setBenefits([]); setUsages([]); setProfile(null); setLoading(false);
         if (!publicPaths.has(pathname)) router.replace("/login");
       }
     });
     return () => listener.subscription.unsubscribe();
-  }, [demoMode, pathname, reload, router]);
+  }, [configurationMissing, demoMode, pathname, reload, router, runtimeConfig]);
 
   const failWrite = useCallback((error: unknown) => {
     notify(error instanceof Error ? error.message : "保存失败，请稍后重试");
@@ -171,8 +200,26 @@ export function CardWiseProvider({ children }: { children: ReactNode }) {
     if (!demoMode) void callApi<CardRow>(`/api/cards/${id}`, { method: "PATCH", body: JSON.stringify(cardPayload(changes)) }).catch(failWrite);
   };
   const deleteCard = (id: string) => {
-    setCards((items) => items.filter((row) => row.id !== id)); setBenefits((items) => items.filter((row) => row.cardId !== id)); setUsages((items) => items.filter((row) => row.cardId !== id)); notify("信用卡已删除");
+    const current = cards.find((row) => row.id === id); if (current) setArchivedCards((items) => [{ ...current, isActive: false }, ...items]);
+    setCards((items) => items.filter((row) => row.id !== id)); setBenefits((items) => items.filter((row) => row.cardId !== id)); setUsages((items) => items.filter((row) => row.cardId !== id)); notify("信用卡已移入回收站");
     if (!demoMode) void callApi<{ id: string }>(`/api/cards/${id}`, { method: "DELETE" }).catch(failWrite);
+  };
+  const restoreCard = (id: string) => {
+    const current = archivedCards.find((row) => row.id === id);
+    if (current) { setArchivedCards((items) => items.filter((row) => row.id !== id)); setCards((items) => [{ ...current, isActive: true }, ...items]); }
+    notify("信用卡已恢复");
+    if (!demoMode) void callApi<{ id: string }>(`/api/cards/${id}/restore`, { method: "POST" }).then(() => reload()).catch(failWrite);
+  };
+  const signOut = async () => {
+    if (demoMode) { router.push("/login"); return; }
+    const { error } = await createClient(runtimeConfig).auth.signOut();
+    if (error) throw error;
+    router.replace("/login");
+  };
+  const updateProfile = async (changes: UserProfile) => {
+    if (demoMode) { setProfile(changes); notify("演示设置已保存在当前会话"); return; }
+    const row = await callApi<ProfileRow>("/api/profile", { method: "PATCH", body: JSON.stringify(changes) });
+    setProfile(mapProfile(row)); notify("个人设置已保存");
   };
   const addBenefit = (input: Omit<Benefit, "id">) => {
     const row = { ...input, id: crypto.randomUUID() };
@@ -209,8 +256,8 @@ export function CardWiseProvider({ children }: { children: ReactNode }) {
   };
 
   const value: CardWiseState = {
-    cards, benefits, usages, demoMode, loading, dataError, toast, reload,
-    addCard, updateCard, deleteCard, addBenefit, updateBenefit, deleteBenefit, addUsage, updateUsage, deleteUsage,
+    cards, archivedCards, benefits, usages, demoMode, loading, dataError, profile, toast, runtimeConfig, configurationMissing, reload,
+    addCard, updateCard, deleteCard, restoreCard, signOut, updateProfile, addBenefit, updateBenefit, deleteBenefit, addUsage, updateUsage, deleteUsage,
     notify, clearToast: () => setToast(null),
   };
   return <CardWiseContext.Provider value={value}>{children}</CardWiseContext.Provider>;
