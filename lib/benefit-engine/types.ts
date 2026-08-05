@@ -17,6 +17,9 @@ export interface CreditCard {
   openedAt: string;
   previousMonthSpend: Money;
   currentQualifyingSpend: Money;
+  currency?: string;
+  statementCycleDay?: number;
+  sortOrder?: number;
   notes?: string;
 }
 
@@ -25,6 +28,9 @@ export interface BenefitRule {
   discountRate?: number;
   fixedAmount?: Money;
   pointsMultiplier?: number;
+  pointsUnitAmount?: Money;
+  fixedPoints?: number;
+  milesPerUnit?: number;
   perTransactionCap?: Money;
   dailyDiscountCap?: Money;
   monthlyDiscountCap?: Money;
@@ -92,9 +98,12 @@ export interface PurchaseScenario {
   channel: "online" | "offline";
   geography: "domestic" | "overseas";
   paymentMethod?: string;
+  currency?: string;
+  couponApplied?: boolean;
+  reservationMade?: boolean;
 }
 
-export interface UsageSummary { monthlyDiscountUsed: Money; annualDiscountUsed: Money; monthlyUsageCount: number; annualUsageCount: number }
+export interface UsageSummary { dailyDiscountUsed: Money; monthlyDiscountUsed: Money; annualDiscountUsed: Money; dailyUsageCount: number; monthlyUsageCount: number; annualUsageCount: number }
 export interface EligibilityResult { eligible: boolean; reasons: string[]; warnings: string[] }
 export interface CalculationResult extends EligibilityResult {
   theoreticalValue: Money;
@@ -104,5 +113,7 @@ export interface CalculationResult extends EligibilityResult {
   remainingMonthlyUses: number | null;
   remainingAnnualUses: number | null;
   nextResetAt: string | null;
+  pointsEarned: number;
+  milesEarned: number;
 }
 export interface Recommendation extends CalculationResult { card: CreditCard; benefit: Benefit; score: number; explanation: string }

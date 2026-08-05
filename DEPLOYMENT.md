@@ -13,7 +13,7 @@ supabase db push
 supabase db seed
 ```
 
-也可在 SQL Editor 中依次执行 `supabase/migrations/202608040001_cardwise.sql` 与 `supabase/seed.sql`。随后检查所有 13 张表均已启用并强制执行 RLS。
+也可在 SQL Editor 中按顺序执行 `supabase/migrations/202608040001_cardwise.sql`、`supabase/migrations/202608050001_card_lifecycle.sql`，再执行 `supabase/seed.sql`。随后检查所有 13 张表均已启用并强制执行 RLS，并确认 authenticated 角色可执行两个卡片生命周期函数。
 
 在 Authentication → URL Configuration 设置生产 Site URL，并加入：
 
@@ -64,6 +64,7 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 - [ ] 使用两个测试账号验证跨用户读取、修改和删除均被 RLS 拒绝。
 - [ ] 未在浏览器包、日志或仓库中出现 service role key。
 - [ ] Storage 桶保持私有，格式与 5MB 限制生效。
+- [ ] 运行一次含重复行与错误行的 CSV 导入，确认 `uploaded_files`、`import_jobs` 和 Storage 对象均属当前用户。
 - [ ] `npm run typecheck`、`npm run lint`、`npm test`、`npm run build:vercel` 全部通过。
 - [ ] 数据备份、账户删除与隐私联系流程已确定。
 - [ ] 逐条确认准备发布的真实权益来源与最后确认日期。

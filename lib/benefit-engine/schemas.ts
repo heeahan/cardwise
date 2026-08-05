@@ -3,7 +3,7 @@ const money = z.number().int().nonnegative();
 
 export const benefitRuleSchema = z.object({
   benefitType: z.enum(["percentage", "fixed_discount", "cashback", "points_multiplier", "fixed_points", "free_service", "buy_one_get_one", "miles", "installment", "custom"]),
-  discountRate: z.number().min(0).max(100).optional(), fixedAmount: money.optional(), pointsMultiplier: z.number().positive().optional(),
+  discountRate: z.number().min(0).max(100).optional(), fixedAmount: money.optional(), pointsMultiplier: z.number().positive().optional(), pointsUnitAmount: money.positive().optional(), fixedPoints: money.optional(), milesPerUnit: z.number().positive().optional(),
   perTransactionCap: money.optional(), dailyDiscountCap: money.optional(), monthlyDiscountCap: money.optional(), annualDiscountCap: money.optional(),
   monthlyUsageLimit: z.number().int().positive().optional(), annualUsageLimit: z.number().int().positive().optional(),
   minimumTransactionAmount: money.optional(), maximumEligibleAmount: money.optional(), previousMonthSpendRequirement: money.optional(),
@@ -20,6 +20,9 @@ export const creditCardInputSchema = z.object({
   issuer: z.string().trim().min(1, "请填写发卡机构").max(80), name: z.string().trim().min(1, "请填写信用卡名称").max(120), nickname: z.string().trim().min(1, "请填写卡片昵称").max(60),
   network: z.enum(["Visa", "Mastercard", "AMEX", "UnionPay", "JCB", "Local"]), lastFour: z.string().regex(/^\d{4}$/, "末四位必须为4位数字").optional().or(z.literal("")),
   annualFee: money, annualFeeMonth: z.number().int().min(1).max(12), previousMonthSpend: money,
+  currentQualifyingSpend: money.optional(), currency: z.string().trim().length(3).transform((value) => value.toUpperCase()).optional(),
+  statementCycleDay: z.number().int().min(1).max(31).optional(), color: z.string().trim().max(120).optional(), notes: z.string().max(1000).optional(),
+  isFavorite: z.boolean().optional(), isActive: z.boolean().optional(), sortOrder: z.number().int().min(0).optional(),
 });
 export const transactionInputSchema = z.object({
   cardId: z.string().min(1), benefitId: z.string().min(1), occurredAt: z.string().min(1), merchantName: z.string().trim().min(1, "请填写商户名称"), category: z.string().trim().min(1),

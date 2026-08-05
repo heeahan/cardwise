@@ -25,7 +25,8 @@ erDiagram
 - `card_benefits.rule` 是通过 Zod 校验的 JSONB 结构化规则，同时保留 `description` 面向用户展示。
 - 每次权益使用保存 `rule_snapshot` 和 `benefit_name_snapshot`，规则更新不会改写历史。
 - 业务表使用 `deleted_at` 软删除；常用索引均排除已删除行。
+- 卡片归档/恢复通过事务型 PostgreSQL 函数处理，只恢复同一次归档的权益、交易和使用记录，并写入审计日志。
 - 公共模板使用 `is_public_template=true, user_id=null`；用户自定义元数据必须有 `user_id`。
 - CSV 的 `external_fingerprint` 在用户范围内唯一，用于重复检测。
 
-完整 schema、索引、触发器、RLS 与 Storage 策略位于 `supabase/migrations/202608040001_cardwise.sql`。
+基础 schema、索引、触发器、RLS 与 Storage 策略位于 `supabase/migrations/202608040001_cardwise.sql`；`202608050001_card_lifecycle.sql` 增量加入卡片币种和可恢复归档函数。已有环境必须按文件名顺序执行全部迁移。
