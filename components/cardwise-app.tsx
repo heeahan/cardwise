@@ -130,7 +130,12 @@ function RouteContent({ pathname }: { pathname: string }) {
   if (parts[0] === "notifications") return <NotificationsScreen />;
   if (parts[0] === "settings") return <SettingsScreen />;
   if (parts[0] === "help") return <HelpScreen />;
-  return <Dashboard />;
+  if (parts.length === 1 && parts[0] === "dashboard") return <Dashboard />;
+  return <NotFoundScreen />;
+}
+
+function NotFoundScreen() {
+  return <section className="panel catalog-state"><span className="eyebrow">404 · NOT FOUND</span><h1>找不到这个页面</h1><p>地址可能已更改，或你没有访问该资源的权限。</p><Link href="/dashboard" className="primary-btn">返回概览</Link></section>;
 }
 
 function PageTitle({ eyebrow, title, description, action }: { eyebrow?: string; title: string; description?: string; action?: React.ReactNode }) {

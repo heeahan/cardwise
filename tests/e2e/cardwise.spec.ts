@@ -9,6 +9,12 @@ test("public health summary never exposes credentials", async ({ request }) => {
   expect(body.auth).toBe("not_configured");
   expect(JSON.stringify(body).toLowerCase()).not.toMatch(/service_role|secret|cookie|bearer|api[_-]?key|token/);
 });
+test("unknown routes render a recoverable not-found screen", async ({ page }) => {
+  await page.goto("/route-that-does-not-exist");
+  await waitForHydration(page);
+  await expect(page.getByRole("heading", { name: "找不到这个页面" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "返回概览" })).toHaveAttribute("href", "/dashboard");
+});
 test("demo login opens the dashboard", async ({ page }) => { await page.goto("/login"); await waitForHydration(page); await page.getByRole("button", { name: "进入演示模式" }).click(); await expect(page).toHaveURL(/\/dashboard/); await expect(page.getByRole("heading", { name: /今天在哪里消费/ })).toBeVisible(); });
 test("recommends at least three cards with reasons", async ({ page }) => { await page.goto("/recommend?q=星巴克"); await waitForHydration(page); await expect(page.getByRole("heading", { name: "推荐结果" })).toBeVisible(); await expect(page.locator(".recommend-card")).toHaveCount(3); await expect(page.locator(".recommend-card").first()).toContainText("预计优惠"); });
 test("catalog explains the unconfigured provider without inventing cards", async ({ page }) => { await page.goto("/cards/new"); await waitForHydration(page); await expect(page.getByRole("heading", { name: "搜索韩国真实信用卡" })).toBeVisible(); await expect(page.getByText("尚未配置 Coocon 商业信用卡数据供应商").first()).toBeVisible(); await expect(page.locator(".catalog-card")).toHaveCount(0); });
