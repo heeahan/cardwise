@@ -15,6 +15,9 @@ CardWise 不收集或保存完整卡号、CVC、银行卡密码、有效期、�
 - service role key 只允许存在于受控服务端维护流程，不能使用 `NEXT_PUBLIC_` 前缀。
 - 日志不得记录原始上传正文、邮箱之外的身份资料或任何支付信息。
 - 发布检查使用 `npm audit --omit=dev` 区分生产依赖与只在本地运行的构建工具；不得用 `npm audit fix --force` 自动接受破坏性降级。
+- 目录搜索只返回 `verified` 记录；`raw_data` 通过列级权限与 RLS 对普通浏览器隐藏。管理员权限由 `cardwise_admins`、数据库策略和 Route Handler 三层检查，不能靠隐藏按钮。
+- Coocon、data.go.kr、Cron 与 service role 凭据只允许使用无 `NEXT_PUBLIC_` 前缀的服务端变量。同步错误不会返回供应商原始响应、密钥或堆栈。
+- 官方 PDF/CSV/JSON 限制为 5MB 并存入私有 Storage；解析结果默认为 `needs_review`，人工确认前不会进入确定性推荐。
 
 ## 账户删除
 

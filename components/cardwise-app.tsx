@@ -1,8 +1,10 @@
 "use client";
 
+/* eslint-disable @next/next/no-img-element -- catalog image hosts are provider-controlled and cannot be statically allowlisted. */
+
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useState, useSyncExternalStore, type FormEvent } from "react";
+import { useEffect, useState, useSyncExternalStore, type FormEvent } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { createBrowserClient } from "@supabase/ssr";
@@ -29,12 +31,28 @@ const subscribeToHydration = () => () => undefined;
 
 const navItems: Array<{ href: string; label: string; icon: LucideIcon }> = [
   { href: "/dashboard", label: "概览", icon: LayoutDashboard }, { href: "/cards", label: "我的卡片", icon: WalletCards },
+  { href: "/catalog", label: "韩国卡片目录", icon: Search },
   { href: "/benefits", label: "权益中心", icon: Tag }, { href: "/recommend", label: "该刷哪张卡", icon: Sparkles },
   { href: "/transactions", label: "消费记录", icon: CreditCardIcon }, { href: "/calendar", label: "权益日历", icon: CalendarDays },
   { href: "/analytics", label: "数据分析", icon: TrendingUp }, { href: "/notifications", label: "提醒", icon: Bell },
 ];
 
 const categoryIcons: Record<string, LucideIcon> = { 咖啡: Coffee, 餐饮: Utensils, 加油: Fuel, 网购: ShoppingBag, 酒店代客泊车: Hotel, 机场贵宾厅: Globe2 };
+
+interface CatalogIssuer { id: string; code?: string | null; name_ko?: string | null; name_en?: string | null; name_zh?: string | null; official_website?: string | null; logo_path?: string | null }
+interface CatalogBenefit { id: string; provider_benefit_id?: string; name: string; description: string; category: string; rule: BenefitRule; source_text: string; source_url?: string | null; effective_from?: string | null; effective_to?: string | null; source_updated_at?: string | null; verification_status: string; review_reasons?: string[]; version: number; is_current?: boolean }
+interface CatalogCard { id: string; issuer_id: string; provider_id: string; external_card_id: string; name_ko: string; name_en?: string | null; name_zh?: string | null; card_type: "credit" | "debit"; brand: CreditCard["network"]; annual_fee_domestic: number; annual_fee_overseas?: number | null; currency: string; image_url?: string | null; official_url: string; application_url?: string | null; product_status: string; source_url: string; source_name: string; source_updated_at?: string | null; last_synced_at?: string | null; verification_status: string; coverage_note?: string | null; card_issuers?: CatalogIssuer | CatalogIssuer[] | null; catalog_benefits?: CatalogBenefit[] }
+interface CatalogProviderMeta { providerId: string; status: string; displayName: string; coverage: string; containsCompleteBenefits: boolean; message?: string }
+interface CatalogUpdate { id: string; created_at: string; credit_cards?: { id: string; nickname: string; card_name: string } | null; catalog_change_events?: { change_type: string; material_fields: string[]; card_catalog?: { name_ko: string; source_name: string; source_url: string } | null; catalog_benefits?: { name: string; description: string; version: number } | null } | null }
+
+const catalogIssuer = (card: CatalogCard) => Array.isArray(card.card_issuers) ? card.card_issuers[0] : card.card_issuers;
+const formatSyncDate = (value?: string | null) => value ? new Date(value).toLocaleString("zh-CN", { timeZone: "Asia/Seoul", dateStyle: "medium", timeStyle: "short" }) : "尚未同步";
+const catalogRequest = async <T,>(url: string, init?: RequestInit): Promise<{ data: T; meta?: Record<string, unknown> }> => {
+  const response = await fetch(url, { ...init, headers: { ...(init?.body instanceof FormData ? {} : { "Content-Type": "application/json" }), ...init?.headers }, cache: "no-store" });
+  const body = await response.json() as { data: T; error?: { message?: string } | null; meta?: Record<string, unknown> };
+  if (!response.ok || body.error) throw new Error(body.error?.message ?? "请求失败，请稍后重试");
+  return { data: body.data, meta: body.meta };
+};
 
 export function CardWiseApp() {
   const pathname = usePathname();
@@ -83,8 +101,11 @@ function AppShell({ pathname, children }: { pathname: string; children: React.Re
 
 function RouteContent({ pathname }: { pathname: string }) {
   const parts = pathname.split("/").filter(Boolean);
+  if (parts[0] === "catalog") return parts[1] ? <CatalogDetailScreen id={parts[1]} /> : <CatalogSearchScreen />;
+  if (parts[0] === "admin" && parts[1] === "catalog") return <AdminCatalogScreen />;
   if (parts[0] === "cards") {
-    if (parts[1] === "new") return <CardForm />;
+    if (parts[1] === "new" && parts[2] === "manual") return <CardForm />;
+    if (parts[1] === "new") return <CatalogSearchScreen />;
     if (parts[2] === "edit") return <CardForm cardId={parts[1]} />;
     if (parts[2] === "benefits" && parts[3] === "new") return <BenefitForm cardId={parts[1]} />;
     if (parts[1]) return <CardDetail id={parts[1]} />;
@@ -180,6 +201,135 @@ function BenefitRow({ benefit }: { benefit: Benefit }) {
 function ActivityRow({ usage }: { usage: BenefitUsage }) {
   const { cards } = useCardWise(); const card = cards.find((c) => c.id === usage.cardId); const Icon = categoryIcons[usage.category] ?? ShoppingBag;
   return <div className="activity"><span className="category-icon soft"><Icon size={18} /></span><div><b>{usage.merchantName}</b><small>{new Date(usage.occurredAt).toLocaleDateString("zh-CN")} · {card?.nickname}</small></div><span><b>-{won(usage.originalAmount)}</b><small className="saved">省 {won(usage.discountAmount)}</small></span></div>;
+}
+
+function CatalogSearchScreen() {
+  const [query, setQuery] = useState("");
+  const [issuer, setIssuer] = useState("");
+  const [cardType, setCardType] = useState("");
+  const [brand, setBrand] = useState("");
+  const [category, setCategory] = useState("");
+  const [status, setStatus] = useState("active");
+  const [feeMax, setFeeMax] = useState("");
+  const [page, setPage] = useState(1);
+  const [items, setItems] = useState<CatalogCard[]>([]);
+  const [total, setTotal] = useState(0);
+  const [provider, setProvider] = useState<CatalogProviderMeta | null>(null);
+  const [catalogStatus, setCatalogStatus] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      const params = new URLSearchParams({ page: String(page), pageSize: "12" });
+      if (query.trim()) params.set("q", query.trim());
+      if (issuer) params.set("issuer", issuer);
+      if (cardType) params.set("cardType", cardType);
+      if (brand) params.set("brand", brand);
+      if (category) params.set("category", category);
+      if (status) params.set("status", status);
+      if (feeMax) params.set("annualFeeMax", feeMax);
+      setLoading(true); setError("");
+      void catalogRequest<{ items: CatalogCard[]; total: number }>(`/api/card-catalog/search?${params}`, { signal: controller.signal })
+        .then((result) => { setItems(result.data.items); setTotal(result.data.total); setProvider(result.meta?.provider as CatalogProviderMeta ?? null); setCatalogStatus(String(result.meta?.catalogStatus ?? "")); })
+        .catch((reason) => { if (!controller.signal.aborted) { setError(reason instanceof Error ? reason.message : "目录搜索失败"); setItems([]); } })
+        .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    }, 350);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [query, issuer, cardType, brand, category, status, feeMax, page]);
+  const issuers = [...new Map(items.map((card) => { const row = catalogIssuer(card); return row ? [row.id, row] : null; }).filter((entry): entry is [string, CatalogIssuer] => Boolean(entry))).values()];
+  const resetPage = (setter: (value: string) => void, value: string) => { setter(value); setPage(1); };
+  const pages = Math.max(1, Math.ceil(total / 12));
+  return <>
+    <PageTitle eyebrow="KOREAN CARD CATALOG" title="搜索韩国真实信用卡" description="这里只展示管理员审核发布的合法来源数据；未配置供应商时不会用演示卡片冒充真实产品。" action={<Link href="/cards/new/manual" className="secondary-btn"><Plus size={17} />找不到？手动添加</Link>} />
+    {provider && <section className={`provider-banner ${provider.status === "ready" || provider.status === "partial" ? "ready" : "warning"}`}><Globe2 size={21} /><div><b>{provider.displayName}</b><p>{provider.message ?? provider.coverage}</p><small>覆盖范围：{provider.coverage} · {provider.containsCompleteBenefits ? "包含完整优惠字段" : "可能只包含部分优惠字段"}</small></div></section>}
+    <section className="catalog-filters panel" aria-label="信用卡目录筛选">
+      <label className="search-input catalog-search"><Search size={18} /><input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="输入韩文、英文或中文辅助卡名" aria-label="搜索韩国信用卡名称" /></label>
+      <Field label="发卡机构"><select value={issuer} onChange={(event) => resetPage(setIssuer, event.target.value)}><option value="">全部机构</option>{issuers.map((row) => <option value={row.id} key={row.id}>{row.name_ko ?? row.name_zh ?? row.name_en}</option>)}</select></Field>
+      <Field label="卡片类型"><select value={cardType} onChange={(event) => resetPage(setCardType, event.target.value)}><option value="">信用卡与 체크카드</option><option value="credit">信用卡</option><option value="debit">체크카드</option></select></Field>
+      <Field label="卡组织"><select value={brand} onChange={(event) => resetPage(setBrand, event.target.value)}><option value="">全部</option>{["Visa", "Mastercard", "AMEX", "UnionPay", "JCB", "Local"].map((value) => <option key={value}>{value}</option>)}</select></Field>
+      <Field label="优惠分类"><select value={category} onChange={(event) => resetPage(setCategory, event.target.value)}><option value="">全部分类</option>{categories.map((value) => <option key={value}>{value}</option>)}</select></Field>
+      <Field label="国内年费上限"><input type="number" min="0" value={feeMax} onChange={(event) => resetPage(setFeeMax, event.target.value)} placeholder="不限" /></Field>
+      <Field label="发行状态"><select value={status} onChange={(event) => resetPage(setStatus, event.target.value)}><option value="">全部状态</option><option value="active">正在发行</option><option value="suspended">暂停申请</option><option value="discontinued">已停发</option><option value="unknown">待确认</option></select></Field>
+    </section>
+    {error ? <section className="panel catalog-state error" role="alert"><Bell /><h2>无法读取信用卡目录</h2><p>{error}</p><button className="secondary-btn" onClick={() => setPage((value) => value)}>重试</button></section> : loading ? <div className="catalog-grid" aria-label="正在加载卡片目录">{Array.from({ length: 6 }, (_, index) => <div className="catalog-skeleton" key={index}><i /><span /><span /><b /></div>)}</div> : items.length ? <>
+      <div className="catalog-result-head"><b>找到 {total} 张已发布卡片</b><span>第 {page} / {pages} 页</span></div>
+      <div className="catalog-grid">{items.map((card) => { const issuerRow = catalogIssuer(card); const benefitNames = (card.catalog_benefits ?? []).filter((benefit) => benefit.verification_status === "verified").slice(0, 3); return <article className="catalog-card" key={card.id}>{card.image_url ? <img src={card.image_url} alt={`${card.name_ko} 卡片图片`} loading="lazy" referrerPolicy="no-referrer" /> : <div className="catalog-card-art"><CreditCardIcon /><span>{card.brand}</span></div>}<div className="catalog-card-copy"><div className="catalog-badges"><span>{card.card_type === "debit" ? "체크카드" : "信用卡"}</span><span className={card.product_status === "active" ? "verified" : "warning"}>{card.product_status === "active" ? "正在发行" : card.product_status === "discontinued" ? "已停发" : "状态待确认"}</span></div><h2>{card.name_ko}</h2><p>{issuerRow?.name_ko ?? "发卡机构待确认"} · {card.brand}</p><dl><div><dt>国内年费</dt><dd>{won(Number(card.annual_fee_domestic))}</dd></div><div><dt>海外兼用</dt><dd>{card.annual_fee_overseas == null ? "未提供" : won(Number(card.annual_fee_overseas))}</dd></div></dl><div className="catalog-benefit-tags">{benefitNames.length ? benefitNames.map((benefit) => <span key={benefit.id}>{benefit.name}</span>) : <span>优惠明细尚未发布</span>}</div><small>{card.source_name} · 同步 {formatSyncDate(card.last_synced_at)}</small><Link href={`/catalog/${card.id}`} className="primary-btn">查看官方优惠与限制 <ChevronRight size={16} /></Link></div></article>; })}</div>
+      <nav className="pagination" aria-label="目录分页"><button disabled={page <= 1} onClick={() => setPage(page - 1)}>上一页</button><span>{page} / {pages}</span><button disabled={page >= pages} onClick={() => setPage(page + 1)}>下一页</button></nav>
+    </> : <section className="panel"><Empty title={catalogStatus === "database_not_configured" ? "尚未配置韩国信用卡数据供应商" : "没有匹配的已审核卡片"} body={provider?.message ?? "调整筛选条件，或使用手动添加并自行维护官方权益资料。"} /><div className="empty-actions"><Link href="/cards/new/manual" className="primary-btn">手动添加我的卡</Link></div></section>}
+  </>;
+}
+
+const ruleFacts = (rule: BenefitRule) => [
+  rule.discountRate !== undefined ? `优惠比例 ${rule.discountRate}%` : null,
+  rule.fixedAmount !== undefined ? `固定优惠 ${won(rule.fixedAmount)}` : null,
+  rule.previousMonthSpendRequirement !== undefined ? `上月消费 ${won(rule.previousMonthSpendRequirement)}` : null,
+  rule.minimumTransactionAmount !== undefined ? `单笔至少 ${won(rule.minimumTransactionAmount)}` : null,
+  rule.perTransactionCap !== undefined ? `单笔上限 ${won(rule.perTransactionCap)}` : null,
+  rule.monthlyDiscountCap !== undefined ? `每月上限 ${won(rule.monthlyDiscountCap)}` : null,
+  rule.annualDiscountCap !== undefined ? `每年上限 ${won(rule.annualDiscountCap)}` : null,
+  rule.monthlyUsageLimit !== undefined ? `每月 ${rule.monthlyUsageLimit} 次` : null,
+  rule.merchantKeywords?.length ? `商户：${rule.merchantKeywords.join("、")}` : null,
+  rule.channel && rule.channel !== "both" ? `仅${rule.channel === "online" ? "线上" : "线下"}` : null,
+  rule.enrollmentRequired ? "需要报名" : null,
+  rule.couponRequired ? "需要优惠券" : null,
+  rule.stackingAllowed === false ? "不可叠加其他优惠" : null,
+].filter((value): value is string => Boolean(value));
+
+function CatalogDetailScreen({ id }: { id: string }) {
+  const router = useRouter();
+  const { reload } = useCardWise();
+  const [card, setCard] = useState<CatalogCard | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [nickname, setNickname] = useState("");
+  const [network, setNetwork] = useState<CreditCard["network"]>("Visa");
+  const [lastFour, setLastFour] = useState("");
+  const [statementDay, setStatementDay] = useState("");
+  const [favorite, setFavorite] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState("");
+  useEffect(() => { const controller = new AbortController(); void catalogRequest<CatalogCard>(`/api/card-catalog/${id}`, { signal: controller.signal }).then(({ data }) => { setCard(data); setNickname(data.name_ko); setNetwork(data.brand); }).catch((reason) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "无法读取卡片详情"); }).finally(() => { if (!controller.signal.aborted) setLoading(false); }); return () => controller.abort(); }, [id]);
+  if (loading) return <section className="panel catalog-state"><span className="spinner" /><h2>正在读取官方优惠资料…</h2></section>;
+  if (error || !card) return <section className="panel"><Empty title="无法查看这张目录卡片" body={error || "它可能尚未发布。"} /><div className="empty-actions"><Link href="/catalog" className="secondary-btn">返回目录</Link><Link href="/cards/new/manual" className="primary-btn">手动添加</Link></div></section>;
+  const issuer = catalogIssuer(card);
+  const benefits = (card.catalog_benefits ?? []).filter((benefit) => benefit.verification_status === "verified");
+  const add = async (event: FormEvent) => { event.preventDefault(); setAdding(true); setAddError(""); try { const { data } = await catalogRequest<{ cardId: string }>(`/api/card-catalog/${id}/add`, { method: "POST", body: JSON.stringify({ nickname, network, lastFour, isFavorite: favorite, statementCycleDay: statementDay ? Number(statementDay) : undefined, autoSyncEnabled: true }) }); await reload(); router.push(`/cards/${data.cardId}`); } catch (reason) { setAddError(reason instanceof Error ? reason.message : "添加失败"); } finally { setAdding(false); } };
+  return <>
+    <PageTitle eyebrow="VERIFIED CATALOG DETAIL" title={card.name_ko} description={`${issuer?.name_ko ?? "发卡机构待确认"} · ${card.card_type === "debit" ? "체크카드" : "信用卡"} · ${card.brand}`} action={<Link href="/catalog" className="secondary-btn">返回目录</Link>} />
+    <div className="catalog-detail-layout"><section><article className="panel catalog-product"><div className="catalog-product-art">{card.image_url ? <img src={card.image_url} alt={`${card.name_ko} 官方卡片图片`} referrerPolicy="no-referrer" /> : <div className="catalog-card-art large"><CreditCardIcon /><span>{card.brand}</span></div>}</div><div><div className="catalog-badges"><span className="verified"><ShieldCheck size={13} />{card.verification_status === "verified" ? "已审核发布" : card.verification_status}</span><span>{card.product_status === "active" ? "正在发行" : card.product_status}</span></div><dl className="details-list"><div><dt>国内年费</dt><dd>{won(Number(card.annual_fee_domestic))}</dd></div><div><dt>海外兼用年费</dt><dd>{card.annual_fee_overseas == null ? "资料未提供" : won(Number(card.annual_fee_overseas))}</dd></div><div><dt>数据来源</dt><dd>{card.source_name}</dd></div><div><dt>来源更新时间</dt><dd>{formatSyncDate(card.source_updated_at)}</dd></div><div><dt>CardWise 最后同步</dt><dd>{formatSyncDate(card.last_synced_at)}</dd></div></dl><div className="button-row"><a className="secondary-btn" href={card.official_url} target="_blank" rel="noreferrer">官方详情 <Globe2 size={15} /></a>{card.application_url && <a className="secondary-btn" href={card.application_url} target="_blank" rel="noreferrer">官方申请页面</a>}</div></div></article>
+      <section className="panel"><div className="panel-head"><h2>官方公布的优惠与限制</h2><span>{benefits.length} 项已审核</span></div>{benefits.length ? <div className="catalog-benefit-list">{benefits.map((benefit) => <article key={benefit.id}><div><span className="eyebrow">{benefit.category} · V{benefit.version}</span><h3>{benefit.name}</h3><p>{benefit.description}</p></div><div className="rule-chips">{ruleFacts(benefit.rule).map((fact) => <span key={fact}>{fact}</span>)}</div><blockquote>{benefit.source_text}</blockquote><footer><span>有效期 {benefit.effective_from ?? "未注明"} — {benefit.effective_to ?? "未注明"}</span>{benefit.source_url && <a href={benefit.source_url} target="_blank" rel="noreferrer">核对官方来源</a>}</footer></article>)}</div> : <Empty title="尚无已确认的结构化权益" body="卡片基本资料已发布，但优惠条件仍可能处于人工审核状态，不会进入确定性推荐。" />}</section></section>
+      <aside className="panel catalog-add-panel"><span className="eyebrow">ADD TO MY WALLET</span><h2>添加到我的信用卡</h2><p>将保存当前卡片与权益快照。以后官方规则变化时，需由你确认后才更新未来计算。</p><form onSubmit={add}><Field label="自定义昵称"><input required maxLength={60} value={nickname} onChange={(event) => setNickname(event.target.value)} /></Field><Field label="发行版本 / 卡组织"><select value={network} onChange={(event) => setNetwork(event.target.value as CreditCard["network"])}>{["Visa", "Mastercard", "AMEX", "UnionPay", "JCB", "Local"].map((value) => <option key={value}>{value}</option>)}</select></Field><Field label="末四位（可选）" hint="仅用于区分实体卡"><input inputMode="numeric" pattern="[0-9]{4}" maxLength={4} value={lastFour} onChange={(event) => setLastFour(event.target.value.replace(/\D/g, "").slice(0, 4))} /></Field><Field label="结算日（可选）"><input type="number" min="1" max="31" value={statementDay} onChange={(event) => setStatementDay(event.target.value)} /></Field><label className="toggle-row"><span>设为常用卡</span><input type="checkbox" checked={favorite} onChange={(event) => setFavorite(event.target.checked)} /><i /></label><div className="import-preview"><b>即将导入</b><span>1 张卡片 · {benefits.length} 项已审核权益</span><small>未审核权益不会进入推荐计算</small></div>{addError && <p className="form-message" role="alert">{addError}</p>}<button className="primary-btn wide" disabled={adding || !nickname.trim()}>{adding ? "安全添加中…" : "确认添加到我的卡片"}</button></form><div className="sensitive-warning"><ShieldCheck /><p>请勿输入完整卡号、CVC、银行密码、有效期、验证码或 주민등록번호。</p></div></aside></div>
+    <section className="source-card warning"><Bell size={20} /><div><b>重要提示</b><p>实际优惠以发卡机构最新产品说明书及账单为准。{card.coverage_note ? ` ${card.coverage_note}` : " 数据源可能未覆盖全部附加条件。"}</p></div></section>
+  </>;
+}
+
+function AdminCatalogScreen() {
+  const [queue, setQueue] = useState<CatalogCard[]>([]); const [runs, setRuns] = useState<Array<Record<string, unknown>>>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState(""); const [message, setMessage] = useState(""); const [json, setJson] = useState(""); const [file, setFile] = useState<File | null>(null);
+  const load = async () => { setLoading(true); setError(""); try { const [cardsResult, runsResult] = await Promise.all([catalogRequest<CatalogCard[]>("/api/admin/card-catalog?status=needs_review"), catalogRequest<Array<Record<string, unknown>>>("/api/admin/card-catalog/sync-runs")]); setQueue(cardsResult.data); setRuns(runsResult.data); } catch (reason) { setError(reason instanceof Error ? reason.message : "无法读取管理员数据"); } finally { setLoading(false); } };
+  useEffect(() => {
+    let active = true;
+    void Promise.all([
+      catalogRequest<CatalogCard[]>("/api/admin/card-catalog?status=needs_review"),
+      catalogRequest<Array<Record<string, unknown>>>("/api/admin/card-catalog/sync-runs"),
+    ]).then(([cardsResult, runsResult]) => {
+      if (!active) return;
+      setQueue(cardsResult.data);
+      setRuns(runsResult.data);
+    }).catch((reason) => {
+      if (active) setError(reason instanceof Error ? reason.message : "无法读取管理员数据");
+    }).finally(() => {
+      if (active) setLoading(false);
+    });
+    return () => { active = false; };
+  }, []);
+  const review = async (card: CatalogCard, action: "publish" | "reject" | "hide" | "mark_discontinued") => { setMessage(""); try { await catalogRequest(`/api/admin/card-catalog/${card.id}/review`, { method: "POST", body: JSON.stringify({ action, benefits: (card.catalog_benefits ?? []).map((benefit) => ({ id: benefit.id, rule: benefit.rule, verificationStatus: benefit.rule.reviewRequired ? "needs_review" : "verified" })) }) }); setMessage(action === "publish" ? "已发布通过审核的数据；未确认权益仍保持隐藏" : "审核状态已更新"); await load(); } catch (reason) { setMessage(reason instanceof Error ? reason.message : "审核失败"); } };
+  const importJson = async () => { try { const payload = JSON.parse(json) as unknown; await catalogRequest("/api/admin/card-catalog", { method: "POST", body: JSON.stringify(payload) }); setJson(""); setMessage("官方资料 JSON 已进入待审核队列"); await load(); } catch (reason) { setMessage(reason instanceof Error ? reason.message : "JSON 格式无效"); } };
+  const upload = async () => { if (!file) return; const form = new FormData(); form.set("file", file); form.set("sourceName", "管理员上传的官方产品资料"); try { await catalogRequest("/api/admin/card-catalog/import", { method: "POST", body: form }); setFile(null); setMessage("文件已上传并标记为 needs_review，不会自动发布"); } catch (reason) { setMessage(reason instanceof Error ? reason.message : "上传失败"); } };
+  const sync = async () => { try { const providerId = process.env.NEXT_PUBLIC_CARD_CATALOG_PROVIDER === "public-data" ? "public-data" : "coocon"; await catalogRequest("/api/admin/card-catalog/sync", { method: "POST", body: JSON.stringify({ providerId, pageSize: 100, idempotencyKey: `${providerId}-${new Date().toISOString()}-${crypto.randomUUID()}` }) }); setMessage("同步任务已进入候选审核流程"); await load(); } catch (reason) { setMessage(reason instanceof Error ? reason.message : "同步未启动"); await load(); } };
+  if (loading) return <section className="panel catalog-state"><span className="spinner" /><h2>正在读取目录审核队列…</h2></section>;
+  if (error) return <section className="panel"><Empty title="无法访问目录管理" body={error} /><div className="empty-actions"><Link href="/catalog" className="secondary-btn">返回公开目录</Link></div></section>;
+  return <><PageTitle eyebrow="CATALOG ADMIN" title="韩国信用卡数据审核" description="管理员权限由数据库和服务端共同验证；候选解析结果必须对照官方资料后才能发布。" action={<button className="primary-btn" onClick={() => void sync()}><Download size={17} />启动受保护同步</button>} />{message && <div className="data-status" role="status">{message}</div>}<div className="two-col admin-catalog-tools"><section className="panel"><h2>上传官方资料</h2><p>支持 PDF、CSV、JSON，最大 5MB。上传后只进入人工审核队列。</p><Field label="官方资料文件"><input type="file" accept="application/pdf,text/csv,application/json" onChange={(event) => setFile(event.target.files?.[0] ?? null)} /></Field><button className="secondary-btn" disabled={!file} onClick={() => void upload()}><Upload size={16} />上传并待审核</button></section><section className="panel"><h2>录入标准化 JSON</h2><p>必须符合 Provider 无关 Schema，并包含官方来源 URL；不会把静态 JSON 描述成实时 API。</p><Field label="目录卡片 JSON"><textarea value={json} onChange={(event) => setJson(event.target.value)} placeholder="粘贴 providerId=manual 的已获授权官方资料结构" /></Field><button className="secondary-btn" disabled={!json.trim()} onClick={() => void importJson()}>校验并进入审核队列</button></section></div><section className="panel"><div className="panel-head"><h2>待审核卡片</h2><span>{queue.length} 张</span></div>{queue.length ? <div className="review-list">{queue.map((card) => <article key={card.id}><div><span className="eyebrow">{card.provider_id} · {card.product_status}</span><h3>{card.name_ko}</h3><p>{card.source_name} · {card.source_url}</p><small>{(card.catalog_benefits ?? []).length} 项候选权益；标记 reviewRequired 的规则不会发布</small></div><div className="button-row"><button className="primary-btn" onClick={() => void review(card, "publish")}>确认并发布</button><button className="secondary-btn" onClick={() => void review(card, "mark_discontinued")}>标记停发</button><button className="danger-btn" onClick={() => void review(card, "reject")}>拒绝</button></div></article>)}</div> : <Empty title="没有待审核卡片" body="新的同步候选或人工资料会显示在这里。" />}</section><section className="panel"><div className="panel-head"><h2>同步历史</h2><span>{runs.length} 次</span></div><div className="sync-run-list">{runs.slice(0, 20).map((run) => <article key={String(run.id)}><b>{String(run.provider_id)}</b><span className={`status ${run.status === "completed" ? "ok" : "warning"}`}>{String(run.status)}</span><small>{formatSyncDate(String(run.started_at))} · 获取 {String(run.fetched_count ?? 0)} · 更新 {String(run.updated_count ?? 0)}</small><p>{run.error_summary ? String(run.error_summary) : "无错误摘要"}</p></article>)}</div></section></>;
 }
 
 function CardsScreen() {
@@ -297,8 +447,11 @@ function AnalyticsScreen() {
 
 function NotificationsScreen() {
   const { benefits, cards, usages } = useCardWise(); const [now] = useState(() => new Date()); const [dismissed, setDismissed] = useState<string[]>([]); const [enabled, setEnabled] = useState<Record<string, boolean>>({ expiry: true, reset: true, fee: true, threshold: true });
+  const [catalogUpdates, setCatalogUpdates] = useState<CatalogUpdate[]>([]); const [catalogUpdateError, setCatalogUpdateError] = useState("");
+  useEffect(() => { const controller = new AbortController(); void catalogRequest<CatalogUpdate[]>("/api/card-catalog/updates", { signal: controller.signal }).then(({ data }) => setCatalogUpdates(data)).catch((reason) => { if (!controller.signal.aborted && !(reason instanceof Error && reason.message === "请先登录")) setCatalogUpdateError(reason instanceof Error ? reason.message : "无法读取目录变更"); }); return () => controller.abort(); }, []);
+  const acceptCatalogUpdate = async (id: string) => { try { await catalogRequest(`/api/card-catalog/updates/${id}/accept`, { method: "POST", body: "{}" }); setCatalogUpdates((items) => items.filter((item) => item.id !== id)); } catch (reason) { setCatalogUpdateError(reason instanceof Error ? reason.message : "无法应用目录更新"); } };
   const alerts = [...(enabled.expiry ? benefits.filter((benefit) => benefit.rule.endsAt && new Date(benefit.rule.endsAt).getTime() >= now.getTime() && new Date(benefit.rule.endsAt).getTime() - now.getTime() <= 30 * 86400000).map((benefit) => ({ id: `expiry-${benefit.id}`, title: `${benefit.name}即将到期`, body: `权益将在 ${benefit.rule.endsAt?.slice(0, 10)} 到期，请在使用前再次核对发卡机构规则。`, tone: "orange" })) : []), ...(enabled.reset ? benefits.filter((benefit) => benefit.rule.monthlyUsageLimit && summarizeUsage(benefit.id, usages, now).monthlyUsageCount < (benefit.rule.monthlyUsageLimit ?? 0)).map((benefit) => { const remaining = (benefit.rule.monthlyUsageLimit ?? 0) - summarizeUsage(benefit.id, usages, now).monthlyUsageCount; return { id: `reset-${benefit.id}`, title: `${benefit.name}本月还有 ${remaining} 次`, body: "未使用次数将在月末重置；实际可用性仍取决于其他资格条件。", tone: "purple" }; }) : []), ...(enabled.fee ? cards.filter((card) => card.annualFee > 0 && [now.getMonth() + 1, (now.getMonth() + 1) % 12 + 1].includes(card.annualFeeMonth)).map((card) => ({ id: `fee-${card.id}`, title: `${card.nickname}年费提醒`, body: `预计 ${card.annualFeeMonth} 月收取 ${won(card.annualFee)}，请核对实际账单日。`, tone: "pink" })) : []), ...(enabled.threshold ? cards.filter((card) => card.currentQualifyingSpend < card.previousMonthSpend).map((card) => ({ id: `threshold-${card.id}`, title: `${card.nickname}尚未达到本期目标`, body: `按当前记录还差 ${won(card.previousMonthSpend - card.currentQualifyingSpend)}；该金额仅基于手动录入。`, tone: "green" })) : [])].filter((alert) => !dismissed.includes(alert.id));
-  return <><PageTitle eyebrow="REMINDERS" title="提醒中心" description="提醒由已录入的卡片、权益规则和使用记录实时生成。" /><div className="two-col notifications-layout"><section className="panel"><div className="panel-head"><h2>待处理</h2><span>{alerts.length} 项</span></div>{alerts.length ? <div className="alert-list">{alerts.map((alert) => <article key={alert.id}><i className={alert.tone}><Bell size={18} /></i><div><b>{alert.title}</b><p>{alert.body}</p><small>实时生成 · 仅供参考</small></div><button className="icon-btn" onClick={() => setDismissed([...dismissed, alert.id])} aria-label="忽略提醒"><X size={16} /></button></article>)}</div> : <Empty title="当前没有待处理提醒" body="临近到期、未使用次数、年费和消费门槛会显示在这里。" />}</section><section className="panel"><h2>提醒设置</h2>{Object.entries({ expiry: "权益即将到期", reset: "月度次数即将重置", fee: "年费即将扣款", threshold: "消费尚未达到门槛" }).map(([key, label]) => <label className="toggle-row" key={key}><span>{label}<small>在当前设备即时生效</small></span><input type="checkbox" checked={enabled[key]} onChange={() => setEnabled({ ...enabled, [key]: !enabled[key] })} /><i /></label>)}</section></div></>;
+  return <><PageTitle eyebrow="REMINDERS" title="提醒中心" description="提醒由已录入的卡片、权益规则、目录版本和使用记录生成。" />{catalogUpdateError && <div className="data-status error" role="alert">{catalogUpdateError}</div>}{catalogUpdates.length > 0 && <section className="panel catalog-update-panel"><div className="panel-head"><h2>官方权益资料有新版本</h2><span>{catalogUpdates.length} 项待确认</span></div><div className="review-list">{catalogUpdates.map((update) => { const event = update.catalog_change_events; return <article key={update.id}><div><span className="eyebrow">CATALOG UPDATE</span><h3>{update.credit_cards?.nickname ?? event?.card_catalog?.name_ko ?? "目录卡片"}</h3><p>{event?.catalog_benefits?.name ?? "卡片资料"} 已发布新版本；变化字段：{event?.material_fields?.join("、") || "官方资料"}</p><small>{event?.card_catalog?.source_name} · 未确认前继续使用你原来的规则</small></div><div className="button-row">{event?.card_catalog?.source_url && <a className="secondary-btn" href={event.card_catalog.source_url} target="_blank" rel="noreferrer">核对来源</a>}<button className="primary-btn" onClick={() => void acceptCatalogUpdate(update.id)}>确认用于未来计算</button></div></article>; })}</div></section>}<div className="two-col notifications-layout"><section className="panel"><div className="panel-head"><h2>待处理</h2><span>{alerts.length} 项</span></div>{alerts.length ? <div className="alert-list">{alerts.map((alert) => <article key={alert.id}><i className={alert.tone}><Bell size={18} /></i><div><b>{alert.title}</b><p>{alert.body}</p><small>实时生成 · 仅供参考</small></div><button className="icon-btn" onClick={() => setDismissed([...dismissed, alert.id])} aria-label="忽略提醒"><X size={16} /></button></article>)}</div> : <Empty title="当前没有待处理提醒" body="临近到期、未使用次数、年费和消费门槛会显示在这里。" />}</section><section className="panel"><h2>提醒设置</h2>{Object.entries({ expiry: "权益即将到期", reset: "月度次数即将重置", fee: "年费即将扣款", threshold: "消费尚未达到门槛" }).map(([key, label]) => <label className="toggle-row" key={key}><span>{label}<small>在当前设备即时生效</small></span><input type="checkbox" checked={enabled[key]} onChange={() => setEnabled({ ...enabled, [key]: !enabled[key] })} /><i /></label>)}</section></div></>;
 }
 
 function SettingsScreen() {

@@ -15,6 +15,7 @@ export function checkEligibility(card: CreditCard, benefit: Benefit, scenario: P
   const warnings = ["根据你已录入的消费记录计算，实际额度请以发卡机构为准。"];
   const when = new Date(scenario.occurredAt);
   const local = seoulClock(when);
+  if (rule.reviewRequired || benefit.confidence === "needs_review") reasons.push("此项优惠尚未完成结构化确认");
   if (!card.isActive) reasons.push("卡片已停用");
   if (benefit.status === "expired" || (rule.endsAt && when > new Date(rule.endsAt))) reasons.push("权益已过期");
   if (rule.startsAt && when < new Date(rule.startsAt)) reasons.push("权益尚未开始");

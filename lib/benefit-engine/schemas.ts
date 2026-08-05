@@ -11,9 +11,13 @@ export const benefitRuleSchema = z.object({
   weekdays: z.array(z.number().int().min(0).max(6)).optional(), timeRanges: z.array(z.object({ start: z.string(), end: z.string() })).optional(),
   channel: z.enum(["online", "offline", "both"]).optional(), geography: z.enum(["domestic", "overseas", "both"]).optional(), paymentMethods: z.array(z.string()).optional(),
   startsAt: z.string().optional(), endsAt: z.string().optional(), resetPeriod: z.enum(["monthly", "yearly", "none"]),
-  enrollmentRequired: z.boolean().optional(), enrolled: z.boolean().optional(), couponRequired: z.boolean().optional(), reservationRequired: z.boolean().optional(), exclusions: z.array(z.string()).optional(),
+  enrollmentRequired: z.boolean().optional(), enrolled: z.boolean().optional(), couponRequired: z.boolean().optional(), reservationRequired: z.boolean().optional(), stackingAllowed: z.boolean().optional(), reviewRequired: z.boolean().optional(), exclusions: z.array(z.string()).optional(),
 }).superRefine((rule, ctx) => {
   if (rule.benefitType === "percentage" && rule.discountRate === undefined) ctx.addIssue({ code: "custom", path: ["discountRate"], message: "百分比权益需要折扣比例" });
+  if (rule.benefitType === "fixed_discount" && rule.fixedAmount === undefined) ctx.addIssue({ code: "custom", path: ["fixedAmount"], message: "固定优惠需要金额" });
+  if (rule.benefitType === "points_multiplier" && (rule.pointsMultiplier === undefined || rule.pointsUnitAmount === undefined)) ctx.addIssue({ code: "custom", path: ["pointsMultiplier"], message: "积分倍数需要倍数和计价单位" });
+  if (rule.benefitType === "fixed_points" && rule.fixedPoints === undefined) ctx.addIssue({ code: "custom", path: ["fixedPoints"], message: "固定积分需要积分数值" });
+  if (rule.benefitType === "miles" && (rule.milesPerUnit === undefined || rule.pointsUnitAmount === undefined)) ctx.addIssue({ code: "custom", path: ["milesPerUnit"], message: "里程权益需要里程值和计价单位" });
 });
 
 export const creditCardInputSchema = z.object({

@@ -14,6 +14,7 @@ CardWise 是一个可部署的个人信用卡权益管理与优惠额度追踪�
 - CSV 在浏览器预览，正式环境将原文件存入私有 Storage，由服务端最多导入 5000 行，并记录文件、任务、指纹去重及错误统计。
 - PostgreSQL schema、索引、软删除、历史规则快照、Supabase RLS、私有 Storage 策略和初始化元数据。
 - Vitest 单元测试与 Playwright 桌面/移动端端到端测试。
+- 韩国信用卡目录 Provider 框架、已审核目录搜索/详情、添加到个人账户、官方资料人工导入、增量同步记录、权益版本确认与数据库级管理员审核。
 
 ## 本地启动
 
@@ -58,4 +59,4 @@ tests/unit/             确定性计算测试
 tests/e2e/              关键用户流程测试
 ```
 
-详细说明见 [数据库](./DATABASE.md)、[权益引擎](./BENEFIT_ENGINE.md)、[安全](./SECURITY.md)、[测试](./TESTING.md) 和 [部署](./DEPLOYMENT.md)。当前未接入银行流水 API；交易仍需手动录入或 CSV 导入。邮件发送和 AI/OCR 适配器默认关闭，核心流程不依赖它们。
+详细说明见 [数据库](./DATABASE.md)、[权益引擎](./BENEFIT_ENGINE.md)、[信用卡数据供应商](./CARD_DATA_PROVIDERS.md)、[安全](./SECURITY.md)、[测试](./TESTING.md) 和 [部署](./DEPLOYMENT.md)。当前未取得 Coocon 商业接口合同，也未选择 data.go.kr 具体数据集，因此线上不会返回伪造的韩国信用卡产品；管理员可从有权使用的官方资料建立待审核目录。当前也未接入银行流水 API，交易仍需手动录入或 CSV 导入。

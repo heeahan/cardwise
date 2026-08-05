@@ -42,6 +42,10 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
+韩国信用卡目录至少配置 `CARD_CATALOG_PROVIDER`。Coocon 需要签约后提供的 Base URL、API Key、Client ID、Client Secret 及正式字段合同；公共数据需要 `DATA_GO_KR_SERVICE_KEY`、明确的数据集名称、许可和接口文档。没有这些条件时系统会显示未配置状态。
+
+定时同步需要仅存在于服务端的 `SUPABASE_SERVICE_ROLE_KEY` 与高强度 `CARD_CATALOG_CRON_SECRET`，请求 `POST /api/admin/card-catalog/sync` 时通过 `x-cardwise-cron-secret` 发送。限制调用频率，并为每次任务提供唯一 `idempotencyKey`。
+
 ## 3. 部署到 Vercel
 
 1. 将仓库导入 Vercel。

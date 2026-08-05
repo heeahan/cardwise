@@ -55,6 +55,8 @@ export interface BenefitRule {
   enrolled?: boolean;
   couponRequired?: boolean;
   reservationRequired?: boolean;
+  stackingAllowed?: boolean;
+  reviewRequired?: boolean;
   exclusions?: string[];
 }
 

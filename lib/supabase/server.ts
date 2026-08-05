@@ -1,4 +1,5 @@
 import { createServerClient } from "@supabase/ssr";
+import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 
 export function isServerSupabaseConfigured() {
@@ -21,4 +22,16 @@ export async function requireUser() {
   const { data: { user }, error } = await supabase.auth.getUser();
   if (error || !user) throw new Error("UNAUTHORIZED");
   return { supabase, user };
+}
+
+export async function requireAdmin() {
+  const context = await requireUser();
+  const { data, error } = await context.supabase.rpc("is_cardwise_admin");
+  if (error || data !== true) throw new Error("FORBIDDEN");
+  return context;
+}
+
+export function createServiceRoleClient() {
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) throw new Error("SERVICE_ROLE_NOT_CONFIGURED");
+  return createSupabaseClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
 }
