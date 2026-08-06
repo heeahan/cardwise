@@ -6,7 +6,7 @@ CardWise 是一个可部署的个人信用卡权益管理与优惠额度追踪�
 
 ## 已实现
 
-- 邮箱密码、Magic Link、重置密码与服务端会话保护；生产未配置 Supabase 时明确阻塞，只有开发或显式本地开关才允许演示模式。
+- 邮箱密码注册/登录、邮箱确认、Magic Link、忘记/重置密码、SSR Cookie 会话刷新与服务端路由保护；生产缺少或使用占位 Supabase 配置时明确阻塞，只有开发或 `NEXT_PUBLIC_DEMO_MODE=true` 才允许演示模式。
 - 信用卡、权益和消费记录的新增/编辑；卡片收藏、启停、排序、软删除和整组恢复；正式环境使用 Supabase 持久化。
 - 百分比、固定减免、返现、免费服务、积分和里程；单笔/日/月/年限额、次数、门槛、日期、首尔时区星期/时段、渠道、地区、支付方式、门店、报名、优惠券和预约规则。
 - 中韩英商户关键词规范化匹配；推荐结果按信用卡去重，返回前三张卡及可用或不推荐原因。
@@ -34,8 +34,8 @@ npm run dev
 
 1. 新建 Supabase 项目。
 2. 按 [DEPLOYMENT.md](./DEPLOYMENT.md) 执行 migration 和 seed。
-3. 把 Project URL 与 anon key 写入 `.env.local`。
-4. 在 Supabase Authentication 中启用 Email；Magic Link 需要配置 Site URL 和 Redirect URL。
+3. 把 Project URL、真实 publishable/anon key、`NEXT_PUBLIC_APP_URL` 和 `NEXT_PUBLIC_DEMO_MODE=false` 写入 `.env.local`。
+4. 在 Supabase Authentication → Providers → Email 启用 Email；生产建议要求邮箱确认，本地可按测试需要关闭。Magic Link、邮箱确认与密码恢复都必须配置 `/auth/callback` 和 `/reset-password` Redirect URL，详见 [DEPLOYMENT.md](./DEPLOYMENT.md)。
 
 ## 常用命令
 
@@ -53,6 +53,8 @@ npm run test:e2e
 ```text
 app/                    Next.js App Router 页面与受保护 API
 components/             CardWise 产品界面
+components/auth/        登录、注册、Magic Link 与密码恢复界面
+lib/auth/               认证校验、错误映射与安全回跳
 lib/benefit-engine/     纯函数权益计算、资格判断、重置与排序
 lib/supabase/           浏览器/服务端 Supabase 客户端
 supabase/migrations/    完整数据库、索引与 RLS

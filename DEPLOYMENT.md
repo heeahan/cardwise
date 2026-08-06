@@ -13,14 +13,23 @@ supabase db push
 supabase db seed
 ```
 
-也可在 SQL Editor 中按文件名顺序执行 `supabase/migrations/` 中的全部 SQL；最后一个必须是 `202608050003_production_activation.sql`。不要跳过历史 migration。随后运行 `npm run verify:production` 检查表、RPC、RLS、私有 Storage、管理员和已审核目录。
+也可在 SQL Editor 中按文件名顺序执行 `supabase/migrations/` 中的全部 SQL；最后一个必须是 `202608060001_auth_profile_trigger_hardening.sql`。不要跳过、改写或重复粘贴历史 migration。随后运行 `npm run verify:production` 检查表、RPC、RLS、私有 Storage、管理员和已审核目录。
 
-在 Authentication → URL Configuration 设置生产 Site URL，并加入：
+在 Authentication → Providers → Email 中启用 Email provider。生产环境建议保持 Confirm email 开启；本地开发可以为自动化测试临时关闭，但上线前必须恢复并实测确认邮件。Magic Link 使用同一个 Email provider。
+
+在 Authentication → URL Configuration 中：
+
+- Site URL：本地项目填 `http://localhost:3000`；生产项目填真实的 `https://YOUR_PRODUCTION_DOMAIN`。
+- Redirect URLs 至少逐项加入：
 
 ```text
-http://localhost:3000/dashboard
-https://YOUR_DOMAIN/dashboard
+http://localhost:3000/auth/callback
+http://localhost:3000/reset-password
+https://YOUR_PRODUCTION_DOMAIN/auth/callback
+https://YOUR_PRODUCTION_DOMAIN/reset-password
 ```
+
+把 `YOUR_PRODUCTION_DOMAIN` 替换为 Vercel 或实际生产部署显示的域名，不要填写 `/dashboard` 作为认证 callback，也不要使用第三方域名通配符。
 
 在 Storage 确认 `cardwise-private` 为私有桶。文件路径必须以当前用户 UUID 为第一层目录。
 
@@ -38,8 +47,9 @@ npm run build:vercel
 
 ```text
 NEXT_PUBLIC_SUPABASE_URL=...
-NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=真实的-publishable-或-anon-key
 NEXT_PUBLIC_APP_URL=http://localhost:3000
+NEXT_PUBLIC_DEMO_MODE=false
 ```
 
 韩国信用卡目录至少配置 `CARD_CATALOG_PROVIDER`。Coocon 需要签约后提供的 Base URL、API Key、Client ID、Client Secret 及正式字段合同；公共数据需要 `DATA_GO_KR_SERVICE_KEY`、明确的数据集名称、许可和接口文档。没有这些条件时系统会显示未配置状态。
@@ -53,7 +63,7 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 1. 将仓库导入 Vercel。
 2. Framework Preset 选择 Next.js。
 3. Build Command 设置为 `npm run build:vercel`。
-4. 添加与 `.env.example` 同名的三个生产环境变量。
+4. 添加 `NEXT_PUBLIC_SUPABASE_URL`、`NEXT_PUBLIC_SUPABASE_ANON_KEY`、`NEXT_PUBLIC_APP_URL=https://YOUR_PRODUCTION_DOMAIN`、`NEXT_PUBLIC_DEMO_MODE=false` 四个生产环境变量；需要管理员任务时再添加仅服务端可见的 service role key。
 5. 部署后把真实域名加入 Supabase Redirect URLs，再进行一次密码登录与 Magic Link 验证。
 
 ## 4. 备份与恢复

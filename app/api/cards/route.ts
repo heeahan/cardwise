@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { creditCardInputSchema } from "../../../lib/benefit-engine/schemas";
-import { isServerSupabaseConfigured, requireUser } from "../../../lib/supabase/server";
+import { isServerDemoModeEnabled, isServerSupabaseConfigured, requireUser } from "../../../lib/supabase/server";
 
 const failure = (message: string, status: number, code: string) => NextResponse.json({ data: null, error: { code, message } }, { status });
 
 export async function GET(request: Request) {
-  if (!isServerSupabaseConfigured()) return NextResponse.json({ data: [], error: null, meta: { mode: "demo" } });
+  if (!isServerSupabaseConfigured()) return isServerDemoModeEnabled() ? NextResponse.json({ data: [], error: null, meta: { mode: "demo" } }) : failure("认证服务配置错误", 503, "AUTH_CONFIGURATION_ERROR");
   try {
     const { supabase, user } = await requireUser();
     const archived = new URL(request.url).searchParams.get("archived") === "1";
@@ -18,7 +18,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  if (!isServerSupabaseConfigured()) return failure("演示模式不会写入远程数据库", 503, "DEMO_MODE");
+  if (!isServerSupabaseConfigured()) return failure(isServerDemoModeEnabled() ? "演示模式不会写入远程数据库" : "认证服务配置错误", 503, isServerDemoModeEnabled() ? "DEMO_MODE" : "AUTH_CONFIGURATION_ERROR");
   const parsed = creditCardInputSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ data: null, error: { code: "VALIDATION_ERROR", message: "输入校验失败", fields: parsed.error.flatten().fieldErrors } }, { status: 422 });
   try {

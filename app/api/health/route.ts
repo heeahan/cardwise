@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { resolveCatalogProvider } from "../../../lib/card-catalog/service";
-import { createServiceRoleClient } from "../../../lib/supabase/server";
+import { createServiceRoleClient, getServerSupabaseConfiguration, isServerDemoModeEnabled } from "../../../lib/supabase/server";
 
 const probe = async (url: string, anonKey: string) => {
   try {
@@ -11,13 +11,17 @@ const probe = async (url: string, anonKey: string) => {
 
 export async function GET() {
   const timestamp = new Date().toISOString();
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const configuration = getServerSupabaseConfiguration();
+  const supabaseUrl = configuration.supabaseUrl?.replace(/\/$/, "");
+  const anonKey = configuration.supabaseAnonKey;
   const provider = resolveCatalogProvider().getMetadata();
   let database = "not_configured";
   let auth = "not_configured";
   let latestSync: { status: string; providerId: string; finishedAt: string | null } | null = null;
-  if (supabaseUrl && anonKey) {
+  if (configuration.state === "invalid" || (configuration.state === "missing" && !isServerDemoModeEnabled())) {
+    database = "configuration_error";
+    auth = "configuration_error";
+  } else if (supabaseUrl && anonKey) {
     [database, auth] = await Promise.all([probe(`${supabaseUrl}/rest/v1/`, anonKey), probe(`${supabaseUrl}/auth/v1/health`, anonKey)]);
     if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
       const { data } = await createServiceRoleClient().from("catalog_sync_runs").select("status,provider_id,finished_at").order("started_at", { ascending: false }).limit(1).maybeSingle();

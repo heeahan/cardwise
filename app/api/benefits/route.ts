@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { benefitInputSchema } from "../../../lib/benefit-engine/schemas";
-import { isServerSupabaseConfigured, requireUser } from "../../../lib/supabase/server";
+import { isServerDemoModeEnabled, isServerSupabaseConfigured, requireUser } from "../../../lib/supabase/server";
 
 export async function GET() {
-  if (!isServerSupabaseConfigured()) return NextResponse.json({ data: [], error: null, meta: { mode: "demo" } });
+  if (!isServerSupabaseConfigured()) return isServerDemoModeEnabled() ? NextResponse.json({ data: [], error: null, meta: { mode: "demo" } }) : NextResponse.json({ data: null, error: { code: "AUTH_CONFIGURATION_ERROR", message: "认证服务配置错误" } }, { status: 503 });
   try {
     const { supabase, user } = await requireUser();
     const { data, error } = await supabase.from("card_benefits").select("*").eq("user_id", user.id).is("deleted_at", null).order("created_at", { ascending: false });

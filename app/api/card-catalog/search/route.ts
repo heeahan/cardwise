@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { normalizeSearchText } from "../../../../lib/card-catalog/normalizer";
 import { parseCardSearchParams } from "../../../../lib/card-catalog/schemas";
 import { resolveCatalogProvider } from "../../../../lib/card-catalog/service";
-import { isServerSupabaseConfigured, requireUser } from "../../../../lib/supabase/server";
+import { isServerDemoModeEnabled, isServerSupabaseConfigured, requireUser } from "../../../../lib/supabase/server";
 
 const fail = (status: number, code: string, message: string, fields?: unknown) => NextResponse.json({ data: null, error: { code, message, fields } }, { status });
 
@@ -10,7 +10,7 @@ export async function GET(request: Request) {
   const parsed = parseCardSearchParams(new URL(request.url).searchParams);
   if (!parsed.success) return fail(422, "VALIDATION_ERROR", "搜索条件无效", parsed.error.flatten().fieldErrors);
   const provider = resolveCatalogProvider().getMetadata();
-  if (!isServerSupabaseConfigured()) return NextResponse.json({ data: { items: [], total: 0, page: parsed.data.page, pageSize: parsed.data.pageSize }, error: null, meta: { provider, catalogStatus: "database_not_configured" } });
+  if (!isServerSupabaseConfigured()) return isServerDemoModeEnabled() ? NextResponse.json({ data: { items: [], total: 0, page: parsed.data.page, pageSize: parsed.data.pageSize }, error: null, meta: { provider, catalogStatus: "database_not_configured" } }) : fail(503, "AUTH_CONFIGURATION_ERROR", "认证服务配置错误");
   try {
     const { supabase } = await requireUser();
     const input = parsed.data;

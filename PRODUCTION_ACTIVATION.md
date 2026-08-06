@@ -12,7 +12,7 @@
 
 ## 3. 执行 migration
 
-运行 `supabase db push`。如果只能用 SQL Editor，严格按文件名顺序执行 `supabase/migrations/` 中的全部 SQL，最后一个应为 `202608050003_production_activation.sql`。不要只执行最新文件。
+运行 `supabase db push`。如果只能用 SQL Editor，严格按文件名顺序执行 `supabase/migrations/` 中的全部 SQL，最后一个应为 `202608060001_auth_profile_trigger_hardening.sql`。不要只执行最新文件。
 
 ## 4. 验证数据库与 Storage
 
@@ -20,7 +20,7 @@
 
 ## 5. 配置 Auth URL
 
-在 Authentication → URL Configuration 中把生产站点设为 Site URL，并加入 `<NEXT_PUBLIC_APP_URL>/auth/callback`。本地开发另加 `http://localhost:3000/auth/callback`。不要使用通配的第三方域名。
+在 Authentication → Providers → Email 中启用 Email；生产保持邮箱确认开启。在 Authentication → URL Configuration 中把生产站点设为 Site URL，并加入 `<NEXT_PUBLIC_APP_URL>/auth/callback` 与 `<NEXT_PUBLIC_APP_URL>/reset-password`。本地开发另加 `http://localhost:3000/auth/callback` 与 `http://localhost:3000/reset-password`。不要使用通配的第三方域名。
 
 ## 6. 创建首个正式账号
 
@@ -42,7 +42,7 @@ npm run bootstrap:admin -- --confirm
 
 ## 9. 配置部署环境变量
 
-在 Sites 的 Environment Variables 中设置 `NEXT_PUBLIC_SUPABASE_URL`、`NEXT_PUBLIC_SUPABASE_ANON_KEY`、`SUPABASE_SERVICE_ROLE_KEY`、`NEXT_PUBLIC_APP_URL` 和至少 32 字符的 `CARDWISE_CRON_SECRET`。供应商变量按已签订合同添加。不要设置 `CARDWISE_ENABLE_DEMO_MODE`，也不要把 service role 或供应商密钥加上 `NEXT_PUBLIC_`。
+在 Sites 的 Environment Variables 中设置 `NEXT_PUBLIC_SUPABASE_URL`、`NEXT_PUBLIC_SUPABASE_ANON_KEY`、`SUPABASE_SERVICE_ROLE_KEY`、`NEXT_PUBLIC_APP_URL`、`NEXT_PUBLIC_DEMO_MODE=false` 和至少 32 字符的 `CARDWISE_CRON_SECRET`。供应商变量按已签订合同添加。不要把 service role 或供应商密钥加上 `NEXT_PUBLIC_`。
 
 ## 10. 重新部署并检查健康状态
 

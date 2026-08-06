@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { isServerSupabaseConfigured, requireUser } from "../../../lib/supabase/server";
+import { isServerDemoModeEnabled, isServerSupabaseConfigured, requireUser } from "../../../lib/supabase/server";
 
 const profileSchema = z.object({
   displayName: z.string().trim().min(1).max(80),
@@ -13,7 +13,7 @@ const profileSchema = z.object({
 const failure = (message: string, status: number, code: string) => NextResponse.json({ data: null, error: { code, message } }, { status });
 
 export async function GET() {
-  if (!isServerSupabaseConfigured()) return NextResponse.json({ data: null, error: null, meta: { mode: "demo" } });
+  if (!isServerSupabaseConfigured()) return isServerDemoModeEnabled() ? NextResponse.json({ data: null, error: null, meta: { mode: "demo" } }) : failure("认证服务配置错误", 503, "AUTH_CONFIGURATION_ERROR");
   try {
     const { supabase, user } = await requireUser();
     const { data, error } = await supabase.from("profiles").select("*").eq("user_id", user.id).is("deleted_at", null).maybeSingle();
