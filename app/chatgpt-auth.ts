@@ -1,6 +1,10 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
+// Sites-only adapter: these forwarded OpenAI workspace headers are never used as
+// CardWise business identity. Vercel and all database/API authorization use the
+// verified Supabase session from lib/supabase/server.ts.
+
 export type ChatGPTUser = {
   userId: string;
   displayName: string;

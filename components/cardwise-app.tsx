@@ -7,7 +7,6 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore, type FormEvent } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { createBrowserClient } from "@supabase/ssr";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
   Bell, CalendarDays, ChevronDown, ChevronRight, CircleHelp, Coffee, CreditCard as CreditCardIcon, Download, Fuel, Gauge,
@@ -23,6 +22,8 @@ import { normalizeImportDate, parseCsvDocument } from "../lib/csv";
 import { creditCardInputSchema, type CreditCardInput } from "../lib/benefit-engine/schemas";
 import type { Benefit, BenefitRule, BenefitUsage, CreditCard, PurchaseScenario } from "../lib/benefit-engine/types";
 import { categories } from "../lib/data/demo";
+import { createClient } from "../lib/supabase/client";
+import { AuthScreen, ForgotPasswordScreen, ResetPasswordScreen } from "./auth/auth-screen";
 
 const KRW = new Intl.NumberFormat("ko-KR", { style: "currency", currency: "KRW", maximumFractionDigits: 0 });
 const won = (value: number) => KRW.format(value);
@@ -492,7 +493,7 @@ function SettingsEditor({ profile, updateProfile, signOut, demoMode, runtimeConf
       const response = await fetch("/api/account/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirmation }) });
       const result = await response.json() as { data?: { deleted?: boolean }; error?: { message?: string } };
       if (!response.ok || !result.data?.deleted) throw new Error(result.error?.message ?? "账户删除失败");
-      if (runtimeConfig.supabaseUrl && runtimeConfig.supabaseAnonKey) await createBrowserClient(runtimeConfig.supabaseUrl, runtimeConfig.supabaseAnonKey).auth.signOut({ scope: "local" });
+      if (runtimeConfig.configurationState === "configured") await createClient(runtimeConfig).auth.signOut({ scope: "local" });
       router.replace("/login?accountDeleted=1");
     } catch (error) { setAccountMessage(error instanceof Error ? error.message : "账户删除失败"); }
     finally { setAccountBusy(false); }
@@ -506,76 +507,6 @@ function SettingsEditor({ profile, updateProfile, signOut, demoMode, runtimeConf
 function HelpScreen() {
   const [open, setOpen] = useState(0); const faqs = [{ q: "CardWise 会自动获取真实刷卡记录吗？", a: "第一版不会。你需要手动录入或通过 CSV 导入；未接入银行 API 时系统不会假装拥有真实交易。" }, { q: "为什么计算结果可能与账单不同？", a: "结果基于你录入的数据和确认的结构化规则。税费、礼品卡、特定商品或银行清算时间都可能影响实际优惠。" }, { q: "演示数据是真实银行产品吗？", a: "不是。A—E 信用卡和全部权益都明确标注为演示模板，只用于测试计算流程。" }, { q: "如何保证其他用户看不到我的数据？", a: "正式环境使用 Supabase Auth 与逐表 RLS。每个查询仍在服务端校验 user_id，避免 IDOR 越权。" }];
   return <><PageTitle eyebrow="HELP CENTER" title="如何更聪明地使用每一张卡" description="快速了解数据准确性、额度计算与隐私保护。" /><label className="help-search"><Search /><input placeholder="搜索帮助主题" /></label><div className="help-grid"><section className="panel"><h2>常见问题</h2>{faqs.map((f, i) => <button className="faq" key={f.q} onClick={() => setOpen(open === i ? -1 : i)}><span><b>{f.q}</b>{open === i && <p>{f.a}</p>}</span><ChevronDown size={18} /></button>)}</section><aside className="support-card"><Sparkles /><h2>需要开始使用？</h2><p>先添加信用卡，再录入每项权益的结构化规则。你也可以直接体验演示数据。</p><Link href="/cards/new" className="primary-btn">添加第一张卡</Link></aside></div></>;
-}
-
-const authErrorMessage = (error: unknown) => {
-  const code = typeof error === "object" && error && "code" in error ? String((error as { code?: unknown }).code ?? "") : "";
-  if (["invalid_credentials", "user_not_found"].includes(code)) return "邮箱或密码不正确。";
-  if (code === "email_not_confirmed") return "请先通过邮箱中的链接完成验证。";
-  if (["user_already_exists", "email_exists"].includes(code)) return "该邮箱已注册，请直接登录或重置密码。";
-  if (code === "signup_disabled") return "当前暂未开放新用户注册。";
-  if (["over_email_send_rate_limit", "email_rate_limit_exceeded"].includes(code)) return "邮件发送过于频繁，请稍后再试。";
-  if (code === "weak_password") return "密码强度不足，请至少使用 8 位并避免常见密码。";
-  if (code === "same_password") return "新密码不能与当前密码相同。";
-  return "认证请求失败，请稍后再试。";
-};
-
-const authCallbackUrl = (next: string) => {
-  const url = new URL("/auth/callback", location.origin);
-  url.searchParams.set("next", next);
-  return url.toString();
-};
-
-function AuthLayout({ children }: { children: React.ReactNode }) {
-  return <main className="auth-page"><section className="auth-brand"><div className="brand light-brand"><span className="brand-mark"><CreditCardIcon size={21} /></span><span>CardWise</span></div><div><span className="eyebrow light">YOUR BENEFITS, CLEARLY</span><h1>每一项权益，<br />都不该被忘记。</h1><p>追踪信用卡优惠额度与使用次数，在每次消费前找到更合适的卡。</p><div className="auth-art"><CreditCardVisual card={{ id: "auth", issuer: "CardWise", name: "Benefit Manager", nickname: "MY SMART CARD", network: "Visa", lastFour: "2026", color: "linear-gradient(135deg,#7f70ff,#4638ce)", isFavorite: true, isActive: true, annualFee: 0, annualFeeMonth: 1, openedAt: today(), previousMonthSpend: 0, currentQualifyingSpend: 0 }} /><div className="floating-saving"><Sparkles size={18} /><span>本月已节省<strong>₩105,300</strong></span></div></div></div><small>演示数据不代表任何真实银行产品</small></section><section className="auth-form-wrap">{children}</section></main>;
-}
-
-function AuthScreen({ register: isRegister }: { register: boolean }) {
-  const router = useRouter(); const searchParams = useSearchParams(); const { runtimeConfig, demoMode, configurationMissing } = useCardWise(); const [email, setEmail] = useState(""); const [password, setPassword] = useState(""); const [message, setMessage] = useState(""); const [loading, setLoading] = useState(false); const configured = Boolean(runtimeConfig.supabaseUrl && runtimeConfig.supabaseAnonKey);
-  const nextValue = searchParams.get("next"); const next = nextValue?.startsWith("/") && !nextValue.startsWith("//") ? nextValue : "/dashboard";
-  const queryMessage = searchParams.get("accountDeleted") === "1" ? "账户及个人数据已删除。" : searchParams.get("error") === "auth_callback_failed" ? "登录链接无效或已过期，请重新请求。" : searchParams.get("error") === "configuration_required" ? "生产环境尚未配置认证服务。" : "";
-  const submit = async (event: FormEvent) => {
-    event.preventDefault(); setLoading(true); setMessage("");
-    try {
-      if (demoMode) { router.push("/dashboard"); return; }
-      if (!configured) { setMessage("认证服务尚未配置，请联系站点管理员。"); return; }
-      const supabase = createBrowserClient(runtimeConfig.supabaseUrl!, runtimeConfig.supabaseAnonKey!);
-      if (isRegister) {
-        const result = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: authCallbackUrl(next) } });
-        if (result.error) throw result.error;
-        if (!result.data.session) { setMessage("注册成功，请检查邮箱并完成验证后登录。"); return; }
-      } else {
-        const result = await supabase.auth.signInWithPassword({ email, password });
-        if (result.error) throw result.error;
-      }
-      router.replace(next);
-    } catch (error) { setMessage(authErrorMessage(error)); }
-    finally { setLoading(false); }
-  };
-  const magic = async () => {
-    if (!configured || !email.trim()) { setMessage("请先填写有效邮箱。"); return; }
-    setLoading(true); setMessage("");
-    try {
-      const supabase = createBrowserClient(runtimeConfig.supabaseUrl!, runtimeConfig.supabaseAnonKey!);
-      const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: authCallbackUrl(next) } });
-      if (error) throw error;
-      setMessage("登录链接已发送，请检查邮箱。");
-    } catch (error) { setMessage(authErrorMessage(error)); }
-    finally { setLoading(false); }
-  };
-  return <AuthLayout><form className="auth-form" onSubmit={submit}><span className="eyebrow">WELCOME</span><h2>{isRegister ? "创建 CardWise 账户" : "欢迎回来"}</h2><p>{isRegister ? "开始管理属于你的信用卡权益。" : "登录后继续管理你的权益与额度。"}</p>{demoMode && <div className="demo-callout"><Sparkles size={17} /><span>当前为明确启用的演示模式，数据不会写入远程数据库。</span></div>}{configurationMissing && <div className="demo-callout warning"><Bell size={17} /><span>生产认证服务尚未配置，演示数据不会自动加载。</span></div>}<Field label="邮箱"><input type="email" required={configured} value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" autoComplete="email" /></Field><Field label="密码"><input type="password" required={configured} minLength={configured ? 8 : undefined} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="至少 8 位" autoComplete={isRegister ? "new-password" : "current-password"} /></Field>{(message || queryMessage) && <p className="form-message" role="status">{message || queryMessage}</p>}<button className="primary-btn wide" disabled={loading || configurationMissing}>{loading ? "请稍候…" : isRegister ? "注册账户" : configured ? "登录" : demoMode ? "进入演示模式" : "等待管理员配置"}</button>{configured && <><button type="button" className="secondary-btn wide" disabled={loading} onClick={() => void magic()}>使用 Magic Link</button><Link className="auth-text-link" href="/forgot-password">忘记密码？</Link></>}<p className="auth-switch">{isRegister ? "已经有账户？" : "还没有账户？"}<Link href={isRegister ? "/login" : "/register"}>{isRegister ? "立即登录" : "免费注册"}</Link></p></form></AuthLayout>;
-}
-
-function ForgotPasswordScreen() {
-  const { runtimeConfig } = useCardWise(); const [email, setEmail] = useState(""); const [message, setMessage] = useState(""); const [loading, setLoading] = useState(false); const configured = Boolean(runtimeConfig.supabaseUrl && runtimeConfig.supabaseAnonKey);
-  const submit = async (event: FormEvent) => { event.preventDefault(); if (!configured) { setMessage("认证服务尚未配置。"); return; } setLoading(true); setMessage(""); try { const supabase = createBrowserClient(runtimeConfig.supabaseUrl!, runtimeConfig.supabaseAnonKey!); const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: authCallbackUrl("/reset-password") }); if (error) throw error; setMessage("如果该邮箱已注册，将收到密码重置链接。"); } catch (error) { setMessage(authErrorMessage(error)); } finally { setLoading(false); } };
-  return <AuthLayout><form className="auth-form" onSubmit={submit}><span className="eyebrow">ACCOUNT RECOVERY</span><h2>重置密码</h2><p>我们只会向已注册邮箱发送一次性重置链接。</p><Field label="邮箱"><input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" /></Field>{message && <p className="form-message" role="status">{message}</p>}<button className="primary-btn wide" disabled={loading || !configured}>{loading ? "正在发送…" : "发送重置链接"}</button><p className="auth-switch"><Link href="/login">返回登录</Link></p></form></AuthLayout>;
-}
-
-function ResetPasswordScreen() {
-  const router = useRouter(); const { runtimeConfig } = useCardWise(); const [password, setPassword] = useState(""); const [message, setMessage] = useState(""); const [loading, setLoading] = useState(false);
-  const submit = async (event: FormEvent) => { event.preventDefault(); if (!runtimeConfig.supabaseUrl || !runtimeConfig.supabaseAnonKey) return; setLoading(true); setMessage(""); try { const supabase = createBrowserClient(runtimeConfig.supabaseUrl, runtimeConfig.supabaseAnonKey); const { error } = await supabase.auth.updateUser({ password }); if (error) throw error; router.replace("/dashboard"); } catch (error) { setMessage(authErrorMessage(error)); } finally { setLoading(false); } };
-  return <AuthLayout><form className="auth-form" onSubmit={submit}><span className="eyebrow">NEW PASSWORD</span><h2>设置新密码</h2><p>新密码至少 8 位，更新后当前安全会话会继续有效。</p><Field label="新密码"><input type="password" required minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" /></Field>{message && <p className="form-message" role="alert">{message}</p>}<button className="primary-btn wide" disabled={loading}>{loading ? "正在更新…" : "更新密码"}</button></form></AuthLayout>;
 }
 
 function Field({ label, hint, error, children }: { label: string; hint?: string; error?: string; children: React.ReactNode }) { return <label className={error ? "field error" : "field"}><span>{label}{hint && <small>{hint}</small>}</span>{children}{error && <em>{error}</em>}</label>; }

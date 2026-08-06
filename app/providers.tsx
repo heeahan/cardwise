@@ -5,12 +5,14 @@ import { usePathname, useRouter } from "next/navigation";
 import { demoBenefits, demoCards, demoUsages } from "../lib/data/demo";
 import type { Benefit, BenefitRule, BenefitUsage, CreditCard } from "../lib/benefit-engine/types";
 import { createClient, isSupabaseConfigured } from "../lib/supabase/client";
+import type { SupabaseConfigurationState } from "../lib/supabase/config";
 
 export interface CardWiseRuntimeConfig {
   supabaseUrl: string | null;
   supabaseAnonKey: string | null;
   appUrl: string;
   demoEnabled: boolean;
+  configurationState: SupabaseConfigurationState;
 }
 
 interface CardWiseState {
@@ -68,7 +70,7 @@ export interface UserProfile { displayName: string; email: string; defaultLangua
 interface ProfileRow { display_name?: string | null; email?: string; default_language?: UserProfile["defaultLanguage"]; default_currency?: string; default_timezone?: UserProfile["defaultTimezone"]; email_notifications?: boolean }
 
 const CardWiseContext = createContext<CardWiseState | null>(null);
-const publicPaths = new Set(["/login", "/register", "/forgot-password"]);
+const publicPaths = new Set(["/login", "/register", "/forgot-password", "/reset-password"]);
 
 const mapCard = (row: CardRow): CreditCard => ({
   id: row.id, issuer: row.issuer_name, name: row.card_name, nickname: row.nickname, network: row.network,
@@ -123,7 +125,7 @@ const benefitPayload = (benefit: Partial<Benefit>) => ({
 });
 
 export function CardWiseProvider({ children, runtimeConfig }: { children: ReactNode; runtimeConfig: CardWiseRuntimeConfig }) {
-  const configured = isSupabaseConfigured(runtimeConfig);
+  const configured = runtimeConfig.configurationState === "configured" && isSupabaseConfigured(runtimeConfig);
   const demoMode = !configured && runtimeConfig.demoEnabled;
   const configurationMissing = !configured && !demoMode;
   const [cards, setCards] = useState<CreditCard[]>(demoMode ? demoCards : []);
@@ -215,6 +217,7 @@ export function CardWiseProvider({ children, runtimeConfig }: { children: ReactN
     const { error } = await createClient(runtimeConfig).auth.signOut();
     if (error) throw error;
     router.replace("/login");
+    router.refresh();
   };
   const updateProfile = async (changes: UserProfile) => {
     if (demoMode) { setProfile(changes); notify("演示设置已保存在当前会话"); return; }

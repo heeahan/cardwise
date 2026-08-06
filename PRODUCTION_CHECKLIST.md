@@ -1,10 +1,10 @@
 # CardWise 生产检查清单
 
 - [ ] 独立生产 Supabase 已创建，CLI 已连接。
-- [ ] 全部 migration 已按顺序应用，最新为 `202608050003_production_activation.sql`。
+- [ ] 全部 migration 已按顺序应用，最新为 `202608060001_auth_profile_trigger_hardening.sql`。
 - [ ] RLS、私有 Storage、5 MB 上限和 MIME allowlist 已由 readiness 检查通过。
 - [ ] Sites 中五个核心环境变量已设置，且没有把服务端密钥设为 `NEXT_PUBLIC_*`。
-- [ ] `CARDWISE_ENABLE_DEMO_MODE` 在生产未设置；Provider 不是 mock。
+- [ ] `NEXT_PUBLIC_DEMO_MODE=false`；Provider 不是 mock。
 - [ ] Email 注册、验证、密码登录、Magic Link、重置密码、退出和 session 刷新已实测。
 - [ ] 已确认首位正式用户，并用一次性 UUID 原子 bootstrap 管理员；临时变量已删除。
 - [ ] `/api/health` 不泄露敏感值，管理员 `/admin/health` readiness 通过。
